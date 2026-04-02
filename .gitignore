@@ -12,10 +12,10 @@ test-results/
 .cache/
 .turbo/
 .next/
+*.tsbuildinfo
 backend/node_modules/
 backend/dist/
 frontend/node_modules/
 frontend/dist/
 frontend/build/
 prisma/dev.db
-
