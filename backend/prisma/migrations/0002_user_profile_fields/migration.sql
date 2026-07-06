@@ -1,0 +1,9 @@
+ALTER TABLE "User"
+ADD COLUMN "fullName" TEXT,
+ADD COLUMN "companyName" TEXT,
+ADD COLUMN "role" TEXT,
+ADD COLUMN "websiteUrl" TEXT,
+ADD COLUMN "useCase" TEXT,
+ADD COLUMN "teamSize" TEXT,
+ADD COLUMN "marketingOptIn" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "acceptedTermsAt" TIMESTAMP(3);

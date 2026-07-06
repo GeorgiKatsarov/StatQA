@@ -8,8 +8,15 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 export function createApp() {
   const app = express();
 
+  app.disable("x-powered-by");
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    next();
+  });
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: "64kb" }));
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
@@ -24,4 +31,3 @@ export function createApp() {
 
   return app;
 }
-

@@ -4,9 +4,10 @@ import { IssueCard } from "./IssueCard";
 interface IssueListProps {
   issues: AnalysisIssue[];
   activeCategoryLabel: string;
+  onRerunIssue?: (issue: AnalysisIssue) => void;
 }
 
-export function IssueList({ issues, activeCategoryLabel }: IssueListProps) {
+export function IssueList({ issues, activeCategoryLabel, onRerunIssue }: IssueListProps) {
   return (
     <section className="panel">
       <div className="panel-header">
@@ -17,7 +18,7 @@ export function IssueList({ issues, activeCategoryLabel }: IssueListProps) {
       </div>
       <div className="issue-list-scroll stack">
         {issues.map((issue, index) => (
-          <IssueCard key={`${issue.id}-${index}`} issue={issue} />
+          <IssueCard key={`${issue.id}-${index}`} issue={issue} onRerunIssue={onRerunIssue} />
         ))}
       </div>
     </section>

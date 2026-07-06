@@ -1,10 +1,14 @@
 interface TopBarProps {
   email: string;
+  fullName?: string | null;
+  companyName?: string | null;
   analysesCount: number;
   onLogout: () => void;
 }
 
-export function TopBar({ email, analysesCount, onLogout }: TopBarProps) {
+export function TopBar({ email, fullName, companyName, analysesCount, onLogout }: TopBarProps) {
+  const accountLabel = [fullName, companyName].filter(Boolean).join(" at ");
+
   return (
     <header className="topbar">
       <div className="brand-lockup">
@@ -12,8 +16,9 @@ export function TopBar({ email, analysesCount, onLogout }: TopBarProps) {
         <div>
           <p className="eyebrow">Website QA platform</p>
           <h1>StatQA</h1>
+          {accountLabel ? <p className="topbar-meta">{accountLabel}</p> : null}
           <p className="topbar-meta">
-            {email} | {analysesCount}/5 analyses used
+            {email} | {analysesCount} analyses run
           </p>
         </div>
       </div>

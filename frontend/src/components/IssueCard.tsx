@@ -2,6 +2,7 @@ import type { AnalysisIssue } from "../lib/types";
 
 interface IssueCardProps {
   issue: AnalysisIssue;
+  onRerunIssue?: (issue: AnalysisIssue) => void;
 }
 
 function formatMetaValue(value: string | number | boolean | null): string {
@@ -20,7 +21,7 @@ function isImageUrl(value: string): boolean {
   return /^https?:\/\/.+\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(value);
 }
 
-export function IssueCard({ issue }: IssueCardProps) {
+export function IssueCard({ issue, onRerunIssue }: IssueCardProps) {
   const evidence = issue.meta ? Object.entries(issue.meta).filter(([, value]) => value !== "") : [];
   const imagePreview = issue.meta?.src && typeof issue.meta.src === "string" && isImageUrl(issue.meta.src) ? issue.meta.src : null;
   const linkPreview = issue.meta?.href && typeof issue.meta.href === "string" ? issue.meta.href : null;
@@ -89,6 +90,13 @@ export function IssueCard({ issue }: IssueCardProps) {
           <span className="eyebrow">Recommended fix</span>
           <p className="recommendation">{issue.recommendation}</p>
         </div>
+        {onRerunIssue ? (
+          <div className="actions-row">
+            <button className="secondary-button" onClick={() => onRerunIssue(issue)}>
+              Rerun this check
+            </button>
+          </div>
+        ) : null}
       </div>
     </article>
   );

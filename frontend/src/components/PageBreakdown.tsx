@@ -4,7 +4,26 @@ interface PageBreakdownProps {
     score: number;
     issueCount: number;
     healthLabel: string;
+    issues: Array<{
+      category: string;
+      severity: string;
+    }>;
   }>;
+}
+
+function summarizeCategories(page: PageBreakdownProps["pages"][number]): string {
+  const categories = page.issues.reduce<Record<string, number>>((accumulator, issue) => {
+    accumulator[issue.category] = (accumulator[issue.category] ?? 0) + 1;
+    return accumulator;
+  }, {});
+
+  return (
+    Object.entries(categories)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 4)
+      .map(([category, count]) => `${category}: ${count}`)
+      .join(" | ") || "No findings"
+  );
 }
 
 export function PageBreakdown({ pages }: PageBreakdownProps) {
@@ -18,7 +37,7 @@ export function PageBreakdown({ pages }: PageBreakdownProps) {
           <article key={page.url} className="page-row">
             <div>
               <strong>{page.url}</strong>
-              <p>{page.healthLabel}</p>
+              <p>{page.healthLabel} | {summarizeCategories(page)}</p>
             </div>
             <div className="page-stats">
               <span>Score {page.score}</span>
@@ -30,4 +49,3 @@ export function PageBreakdown({ pages }: PageBreakdownProps) {
     </section>
   );
 }
-

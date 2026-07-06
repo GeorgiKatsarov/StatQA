@@ -12,7 +12,16 @@ function makeScrapedData(): ScrapedData {
     lang: "",
     headings: [],
     links: [{ href: "https://example.com/about", text: "", isInternal: true }],
-    buttons: [],
+    buttons: [
+      {
+        text: "",
+        label: "",
+        type: "button",
+        visible: true,
+        disabled: false,
+        formIndex: null
+      }
+    ],
     inputs: [
       {
         type: "text",
@@ -37,7 +46,7 @@ function makeScrapedData(): ScrapedData {
         kind: "search"
       }
     ],
-    images: [{ src: "https://example.com/image.jpg", alt: null }],
+    images: [{ src: "https://example.com/image.jpg", alt: null, loaded: false, naturalWidth: 0, naturalHeight: 0 }],
     videos: [],
     iframes: [],
     landmarks: [],
@@ -49,6 +58,13 @@ function makeScrapedData(): ScrapedData {
     accessibilitySignals: {
       unlabeledInputs: 1,
       landmarksPresent: []
+    },
+    securitySignals: {
+      isHttps: true,
+      responseHeaders: {},
+      mixedContentUrls: ["http://example.com/insecure.js"],
+      insecureFormActions: [],
+      passwordFieldsOnInsecurePage: 0
     },
     behaviorChecks: [
       {
@@ -63,6 +79,20 @@ function makeScrapedData(): ScrapedData {
           method: "get",
           changedUrl: false,
           requestSeen: false
+        }
+      },
+      {
+        id: "button-failed",
+        pageUrl: "https://example.com",
+        category: "button",
+        target: "button 1",
+        status: "failed",
+        message: "button 1 did not navigate, send a request, expand, or visibly change page content after a click.",
+        meta: {
+          changedUrl: false,
+          requestSeen: false,
+          textChanged: false,
+          expandedChanged: false
         }
       }
     ],
@@ -90,5 +120,9 @@ test("validatePage returns expected issue categories for obvious failures", () =
   assert.equal(categories.has("console"), true);
   assert.equal(categories.has("content"), true);
   assert.equal(categories.has("behavior"), true);
+  assert.equal(categories.has("security"), true);
+  assert.equal(issues.some((issue) => issue.message === "Image failed to load"), true);
+  assert.equal(issues.some((issue) => issue.message === "Button click did not respond"), true);
+  assert.equal(issues.some((issue) => issue.message === "Mixed content resources detected"), true);
   assert.equal(issues.every((issue) => issue.screenshot?.dataUrl === "data:image/png;base64,test"), true);
 });

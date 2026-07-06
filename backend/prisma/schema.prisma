@@ -11,6 +11,14 @@ model User {
   id            String     @id @default(cuid())
   email         String     @unique
   passwordHash  String
+  fullName      String?
+  companyName   String?
+  role          String?
+  websiteUrl    String?
+  useCase       String?
+  teamSize      String?
+  marketingOptIn Boolean   @default(false)
+  acceptedTermsAt DateTime?
   analysesCount Int        @default(0)
   analyses      Analysis[]
   createdAt     DateTime   @default(now())
@@ -29,4 +37,3 @@ model Analysis {
 
   @@index([userId, createdAt])
 }
-

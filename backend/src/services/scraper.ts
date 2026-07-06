@@ -1,11 +1,19 @@
 import { chromium, type Page } from "playwright";
-import type { BehaviorCheck, IssueScreenshot, ScrapedData } from "../types/index.js";
+import type { BehaviorCheck, BehaviorTestConfig, IssueScreenshot, ScrapedData } from "../types/index.js";
 import { isSameHostname } from "../utils/domain.js";
 
 const screenshotPadding = 24;
-const behaviorValue = "statqa test";
-const behaviorEmail = "statqa@example.com";
-const behaviorPassword = "StatQA-Test-123!";
+export const defaultBehaviorConfig: BehaviorTestConfig = {
+  testForms: true,
+  testSearch: true,
+  testButtons: true,
+  testLinks: true,
+  sampleText: "statqa test",
+  sampleEmail: "statqa@example.com",
+  samplePhone: "5550100",
+  samplePassword: "StatQA-Test-123!",
+  sampleUrl: "https://example.com"
+};
 
 function toScreenshotDataUrl(buffer: Buffer): string {
   return `data:image/png;base64,${buffer.toString("base64")}`;
@@ -72,7 +80,7 @@ function isSensitiveForm(form: { kind: string; method: string | null }, inputs: 
   );
 }
 
-async function fillForm(page: Page, formSelector: string): Promise<void> {
+async function fillForm(page: Page, formSelector: string, config: BehaviorTestConfig): Promise<void> {
   const fields = page.locator(
     `${formSelector} input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), ${formSelector} textarea, ${formSelector} select`
   );
@@ -103,17 +111,17 @@ async function fillForm(page: Page, formSelector: string): Promise<void> {
     }
 
     if (type === "email") {
-      await field.fill(behaviorEmail).catch(() => undefined);
+      await field.fill(config.sampleEmail).catch(() => undefined);
     } else if (type === "password") {
-      await field.fill(behaviorPassword).catch(() => undefined);
+      await field.fill(config.samplePassword).catch(() => undefined);
     } else if (type === "tel") {
-      await field.fill("5550100").catch(() => undefined);
+      await field.fill(config.samplePhone).catch(() => undefined);
     } else if (type === "number") {
       await field.fill("1").catch(() => undefined);
     } else if (type === "url") {
-      await field.fill("https://example.com").catch(() => undefined);
+      await field.fill(config.sampleUrl).catch(() => undefined);
     } else {
-      await field.fill(behaviorValue).catch(() => undefined);
+      await field.fill(config.sampleText).catch(() => undefined);
     }
   }
 }
@@ -157,7 +165,11 @@ async function submitForm(page: Page, formSelector: string): Promise<{ changedUr
   };
 }
 
-async function submitStandaloneSearch(page: Page, selector: string): Promise<{ changedUrl: boolean; requestSeen: boolean }> {
+async function submitStandaloneSearch(
+  page: Page,
+  selector: string,
+  config: BehaviorTestConfig
+): Promise<{ changedUrl: boolean; requestSeen: boolean }> {
   const initialUrl = page.url();
   let requestSeen = false;
   const requestListener = (request: { url: () => string; method: () => string }) => {
@@ -169,7 +181,7 @@ async function submitStandaloneSearch(page: Page, selector: string): Promise<{ c
   page.on("request", requestListener);
   try {
     const input = page.locator(selector).first();
-    await input.fill(behaviorValue, { timeout: 1500 });
+    await input.fill(config.sampleText, { timeout: 1500 });
     await Promise.all([
       page.waitForLoadState("domcontentloaded", { timeout: 3000 }).catch(() => undefined),
       input.press("Enter", { timeout: 1500 })
@@ -195,6 +207,59 @@ function isSearchInput(input: {
   return /\b(search|query|keyword|q)\b/.test(text);
 }
 
+function isDangerousButtonLabel(label: string): boolean {
+  return /\b(delete|remove|destroy|archive|purchase|buy|checkout|order|pay|subscribe|unsubscribe|logout|log out|sign out)\b/i.test(
+    label
+  );
+}
+
+function isCandidateCtaLink(link: { href: string; text: string; isInternal: boolean; selector?: string }): boolean {
+  if (!link.selector || !link.isInternal || !link.href.startsWith("http") || !link.text.trim()) {
+    return false;
+  }
+
+  const text = link.text.toLowerCase();
+  return /\b(shop|buy|book|start|get|contact|quote|demo|learn|view|details|read|checkout|cart|sign up|register)\b/.test(text);
+}
+
+async function clickButton(page: Page, selector: string): Promise<{
+  changedUrl: boolean;
+  requestSeen: boolean;
+  textChanged: boolean;
+  expandedChanged: boolean;
+}> {
+  const initialUrl = page.url();
+  const initialText = await page.locator("body").innerText({ timeout: 1000 }).catch(() => "");
+  const initialExpanded = await page.locator(selector).first().getAttribute("aria-expanded").catch(() => null);
+  let requestSeen = false;
+  const requestListener = (request: { url: () => string; method: () => string }) => {
+    if (request.url() !== initialUrl && ["GET", "POST"].includes(request.method())) {
+      requestSeen = true;
+    }
+  };
+
+  page.on("request", requestListener);
+  try {
+    await Promise.all([
+      page.waitForLoadState("domcontentloaded", { timeout: 2500 }).catch(() => undefined),
+      page.locator(selector).first().click({ timeout: 1500 })
+    ]);
+    await page.waitForTimeout(500);
+  } finally {
+    page.off("request", requestListener);
+  }
+
+  const currentText = await page.locator("body").innerText({ timeout: 1000 }).catch(() => "");
+  const currentExpanded = await page.locator(selector).first().getAttribute("aria-expanded").catch(() => null);
+
+  return {
+    changedUrl: page.url() !== initialUrl,
+    requestSeen,
+    textChanged: currentText !== initialText,
+    expandedChanged: currentExpanded !== initialExpanded
+  };
+}
+
 async function runBehaviorChecks(
   page: Page,
   pageUrl: string,
@@ -213,12 +278,28 @@ async function runBehaviorChecks(
     formIndex: number | null;
     editable?: boolean;
     selector?: string;
-  }>
+  }>,
+  buttons: Array<{
+    text: string;
+    label: string;
+    type: string | null;
+    visible?: boolean;
+    disabled?: boolean;
+    formIndex: number | null;
+    selector?: string;
+  }>,
+  links: Array<{
+    href: string;
+    text: string;
+    isInternal: boolean;
+    selector?: string;
+  }>,
+  config: BehaviorTestConfig = defaultBehaviorConfig
 ): Promise<BehaviorCheck[]> {
   const checks: BehaviorCheck[] = [];
   const originalUrl = page.url();
 
-  for (const [index, form] of forms.slice(0, 4).entries()) {
+  if (config.testForms) for (const [index, form] of forms.slice(0, 4).entries()) {
     if (!form.selector || !form.hasSubmitButton || form.editableInputCount === 0) {
       continue;
     }
@@ -246,7 +327,7 @@ async function runBehaviorChecks(
       continue;
     }
 
-    await fillForm(page, form.selector);
+    await fillForm(page, form.selector, config);
     const result = await submitForm(page, form.selector).catch(() => ({ changedUrl: false, requestSeen: false }));
     const screenshot = await captureViewportScreenshot(page).catch(() => undefined);
     const passed = result.changedUrl || result.requestSeen;
@@ -275,13 +356,13 @@ async function runBehaviorChecks(
     }
   }
 
-  const standaloneSearches = inputs
+  const standaloneSearches = config.testSearch ? inputs
     .filter((input) => input.editable && input.formIndex === null && input.selector && isSearchInput(input))
-    .slice(0, 2);
+    .slice(0, 2) : [];
 
   for (const [index, input] of standaloneSearches.entries()) {
     const target = `standalone search ${index + 1}`;
-    const result = await submitStandaloneSearch(page, input.selector as string).catch(() => ({
+    const result = await submitStandaloneSearch(page, input.selector as string, config).catch(() => ({
       changedUrl: false,
       requestSeen: false
     }));
@@ -309,10 +390,99 @@ async function runBehaviorChecks(
     }
   }
 
+  const clickableButtons = config.testButtons ? buttons
+    .filter((button) => {
+      const type = (button.type ?? "button").toLowerCase();
+      return (
+        button.visible &&
+        !button.disabled &&
+        button.formIndex === null &&
+        button.selector &&
+        type !== "submit" &&
+        !isDangerousButtonLabel(button.label || button.text)
+      );
+    })
+    .slice(0, 4) : [];
+
+  for (const [index, button] of clickableButtons.entries()) {
+    const target = button.label || button.text || `button ${index + 1}`;
+    const result = await clickButton(page, button.selector as string).catch(() => ({
+      changedUrl: false,
+      requestSeen: false,
+      textChanged: false,
+      expandedChanged: false
+    }));
+    const passed = result.changedUrl || result.requestSeen || result.textChanged || result.expandedChanged;
+
+    checks.push({
+      id: `${pageUrl}:behavior:${passed ? "passed" : "failed"}:${target}`.replace(/[^a-z0-9]+/gi, "-").toLowerCase(),
+      pageUrl,
+      category: "button",
+      target,
+      status: passed ? "passed" : "failed",
+      message: passed
+        ? `${target} responded to a deterministic click.`
+        : `${target} did not navigate, send a request, expand, or visibly change page content after a click.`,
+      selector: button.selector,
+      screenshot: await captureElementScreenshot(page, button.selector as string).catch(() => undefined),
+      meta: {
+        changedUrl: result.changedUrl,
+        requestSeen: result.requestSeen,
+        textChanged: result.textChanged,
+        expandedChanged: result.expandedChanged
+      }
+    });
+
+    if (page.url() !== originalUrl) {
+      await page.goto(originalUrl, { waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => undefined);
+    }
+  }
+
+  const ctaLinks = config.testLinks ? links.filter(isCandidateCtaLink).slice(0, 5) : [];
+
+  for (const [index, link] of ctaLinks.entries()) {
+    const target = link.text || `link ${index + 1}`;
+    const result = await page.goto(link.href, { waitUntil: "domcontentloaded", timeout: 10000 })
+      .then((response) => ({
+        loaded: Boolean(response && response.status() < 400),
+        status: response?.status() ?? 0,
+        finalUrl: page.url()
+      }))
+      .catch((error: unknown) => ({
+        loaded: false,
+        status: 0,
+        finalUrl: page.url(),
+        error: error instanceof Error ? error.message.slice(0, 240) : "Unknown navigation error"
+      }));
+
+    checks.push({
+      id: `${pageUrl}:behavior:${result.loaded ? "passed" : "failed"}:${target}`.replace(/[^a-z0-9]+/gi, "-").toLowerCase(),
+      pageUrl,
+      category: "link",
+      target,
+      status: result.loaded ? "passed" : "failed",
+      message: result.loaded
+        ? `${target} opened a reachable internal page.`
+        : `${target} did not open a reachable internal page.`,
+      selector: link.selector,
+      screenshot: await captureElementScreenshot(page, link.selector as string).catch(() => undefined),
+      meta: {
+        href: link.href,
+        status: result.status,
+        finalUrl: result.finalUrl,
+        error: "error" in result ? result.error ?? null : null
+      }
+    });
+
+    if (page.url() !== originalUrl) {
+      await page.goto(originalUrl, { waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => undefined);
+    }
+  }
+
   return checks;
 }
 
-export async function scrapePage(url: string): Promise<ScrapedData> {
+export async function scrapePage(url: string, behaviorConfig: BehaviorTestConfig = defaultBehaviorConfig): Promise<ScrapedData> {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   const consoleErrors: string[] = [];
@@ -334,7 +504,8 @@ export async function scrapePage(url: string): Promise<ScrapedData> {
   const startTime = Date.now();
 
   try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    const responseHeaders = response?.headers() ?? {};
 
     const data = await page.evaluate((currentUrl) => {
       const hostname = new URL(currentUrl).hostname;
@@ -401,13 +572,6 @@ export async function scrapePage(url: string): Promise<ScrapedData> {
         };
       });
 
-      const buttons = Array.from(document.querySelectorAll("button, input[type='button'], input[type='submit']"))
-        .map((button) => ({
-          text: toText(button.textContent) || toText((button as HTMLInputElement).value),
-          type: button.getAttribute("type"),
-          selector: getSelector(button)
-        }));
-
       const classifyForm = (form: HTMLFormElement): "search" | "login" | "contact" | "newsletter" | "generic" => {
         const text = [
           form.getAttribute("role"),
@@ -441,6 +605,25 @@ export async function scrapePage(url: string): Promise<ScrapedData> {
       };
 
       const formElements = Array.from(document.querySelectorAll("form"));
+
+      const buttons = Array.from(document.querySelectorAll("button, input[type='button'], input[type='submit']"))
+        .map((button) => {
+          const rect = button.getBoundingClientRect();
+          const visible = rect.width > 0 && rect.height > 0 && window.getComputedStyle(button).visibility !== "hidden";
+          const disabled = button.hasAttribute("disabled") || button.getAttribute("aria-disabled") === "true";
+          const text = toText(button.textContent) || toText((button as HTMLInputElement).value);
+          const parentForm = button.closest("form");
+
+          return {
+            text,
+            label: text || toText(button.getAttribute("aria-label")) || toText(button.getAttribute("title")),
+            type: button.getAttribute("type"),
+            visible,
+            disabled,
+            formIndex: parentForm ? formElements.indexOf(parentForm) + 1 : null,
+            selector: getSelector(button)
+          };
+        });
 
       const inputs = Array.from(document.querySelectorAll("input, textarea, select")).map((input) => {
         const id = input.getAttribute("id");
@@ -489,6 +672,9 @@ export async function scrapePage(url: string): Promise<ScrapedData> {
       const images = Array.from(document.querySelectorAll("img")).map((image) => ({
         src: image.currentSrc || image.getAttribute("src") || "",
         alt: image.getAttribute("alt"),
+        loaded: image.complete && image.naturalWidth > 0,
+        naturalWidth: image.naturalWidth,
+        naturalHeight: image.naturalHeight,
         selector: getSelector(image)
       }));
 
@@ -505,6 +691,28 @@ export async function scrapePage(url: string): Promise<ScrapedData> {
       const videos = Array.from(document.querySelectorAll("video")).map((video) => video.currentSrc || "");
       const iframes = Array.from(document.querySelectorAll("iframe")).map((frame) => frame.src || "");
       const textContent = toText(document.body?.innerText).replace(/\s+/g, " ");
+      const resourceUrls = [
+        ...Array.from(document.querySelectorAll("script[src]")).map((element) => (element as HTMLScriptElement).src),
+        ...Array.from(document.querySelectorAll("link[href]")).map((element) => (element as HTMLLinkElement).href),
+        ...Array.from(document.querySelectorAll("img[src]")).map((element) => (element as HTMLImageElement).src),
+        ...Array.from(document.querySelectorAll("iframe[src]")).map((element) => (element as HTMLIFrameElement).src)
+      ];
+      const insecureFormActions = formElements
+        .map((form) => {
+          const rawAction = form.getAttribute("action") || window.location.href;
+          let action = rawAction;
+          try {
+            action = new URL(rawAction, window.location.href).toString();
+          } catch {
+            action = rawAction;
+          }
+
+          return {
+            action,
+            selector: getSelector(form)
+          };
+        })
+        .filter((form) => form.action.toLowerCase().startsWith("http://"));
 
       return {
         finalUrl: window.location.href,
@@ -526,13 +734,22 @@ export async function scrapePage(url: string): Promise<ScrapedData> {
         accessibilitySignals: {
           unlabeledInputs: inputs.filter((input) => !input.label).length,
           landmarksPresent: landmarks
+        },
+        securitySignals: {
+          isHttps: window.location.protocol === "https:",
+          mixedContentUrls: resourceUrls.filter((resourceUrl) => resourceUrl.toLowerCase().startsWith("http://")).slice(0, 20),
+          insecureFormActions,
+          passwordFieldsOnInsecurePage:
+            window.location.protocol === "https:"
+              ? 0
+              : inputs.filter((input) => (input.type ?? "").toLowerCase() === "password").length
         }
       };
     }, url);
 
     const finalUrl = data.finalUrl;
     const scopedLinks = data.links.filter((link) => link.href.startsWith("http") && isSameHostname(finalUrl, link.href));
-    const behaviorChecks = await runBehaviorChecks(page, url, data.forms, data.inputs).catch(() => []);
+    const behaviorChecks = await runBehaviorChecks(page, url, data.forms, data.inputs, data.buttons, scopedLinks, behaviorConfig).catch(() => []);
     const pageScreenshot = await captureViewportScreenshot(page).catch(() => undefined);
     const screenshots = new Map<string, IssueScreenshot | undefined>();
     const getScreenshot = async (selector: string | undefined): Promise<IssueScreenshot | undefined> => {
@@ -565,10 +782,16 @@ export async function scrapePage(url: string): Promise<ScrapedData> {
         screenshot: !form.hasSubmitButton ? await getScreenshot(form.selector) : undefined
       }))
     );
+    const buttons = await Promise.all(
+      data.buttons.map(async (button) => ({
+        ...button,
+        screenshot: button.visible && !button.disabled && !button.label ? await getScreenshot(button.selector) : undefined
+      }))
+    );
     const images = await Promise.all(
       data.images.map(async (image) => ({
         ...image,
-        screenshot: image.alt === null ? await getScreenshot(image.selector) : undefined
+        screenshot: image.alt === null || !image.loaded ? await getScreenshot(image.selector) : undefined
       }))
     );
 
@@ -580,7 +803,7 @@ export async function scrapePage(url: string): Promise<ScrapedData> {
       lang: data.lang,
       headings: data.headings,
       links,
-      buttons: data.buttons,
+      buttons,
       inputs,
       forms,
       images,
@@ -593,6 +816,10 @@ export async function scrapePage(url: string): Promise<ScrapedData> {
       consoleErrors,
       loadTimeMs: Date.now() - startTime,
       accessibilitySignals: data.accessibilitySignals,
+      securitySignals: {
+        ...data.securitySignals,
+        responseHeaders
+      },
       behaviorChecks,
       pageScreenshot
     };

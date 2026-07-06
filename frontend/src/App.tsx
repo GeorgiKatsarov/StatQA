@@ -3,7 +3,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Login } from "./pages/Login";
 import { ApiError, apiRequest, type AnalysisSummary, type StoredAnalysisResponse } from "./lib/api";
 import { clearToken, getToken, setToken } from "./lib/auth";
-import type { AnalysisResult, AuthUser } from "./lib/types";
+import type { AnalysisJob, AnalysisResult, AnalyzeRequest, AuthUser, RegisterFormData } from "./lib/types";
 
 export default function App() {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -15,6 +15,7 @@ export default function App() {
   const [activeAnalysisId, setActiveAnalysisId] = useState<string | undefined>(undefined);
   const [history, setHistory] = useState<AnalysisSummary[]>([]);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [activeJob, setActiveJob] = useState<AnalysisJob | null>(null);
 
   function formatError(error: unknown, fallback: string): string {
     if (error instanceof ApiError) {
@@ -27,10 +28,6 @@ export default function App() {
           : "";
 
         return flattened ? `${error.message} ${flattened}` : error.message;
-      }
-
-      if (error.code === "USAGE_LIMIT_REACHED") {
-        return "You have used all 5 free analyses. Create a new account or reset the test user before running more scans.";
       }
 
       return error.message;
@@ -68,7 +65,7 @@ export default function App() {
       .finally(() => setAuthChecked(true));
   }, []);
 
-  async function handleAuth(email: string, password: string) {
+  async function handleAuth(payload: { email: string; password: string } | RegisterFormData) {
     setLoading(true);
     setError("");
 
@@ -76,7 +73,7 @@ export default function App() {
       const path = mode === "login" ? "/auth/login" : "/auth/register";
       const response = await apiRequest<{ token: string }>(path, {
         method: "POST",
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify(payload)
       });
       setToken(response.token);
       await loadSessionData();
@@ -88,23 +85,52 @@ export default function App() {
     }
   }
 
-  async function handleAnalyze(url: string) {
+  useEffect(() => {
+    if (!activeJob || activeJob.status === "completed" || activeJob.status === "failed") {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void apiRequest<{ job: AnalysisJob }>(`/analyze/jobs/${activeJob.jobId}`)
+        .then(async ({ job }) => {
+          setActiveJob(job);
+          if (job.status === "completed") {
+            const result = await apiRequest<{ analysis: AnalysisResult }>(`/analyze/jobs/${job.jobId}/result`);
+            setAnalysis(result.analysis);
+            await loadSessionData();
+            const refreshedHistory = await apiRequest<{ analyses: AnalysisSummary[] }>("/analyses");
+            setHistory(refreshedHistory.analyses);
+            setActiveAnalysisId(refreshedHistory.analyses[0]?.id);
+            setLoading(false);
+          }
+
+          if (job.status === "failed") {
+            setError(job.error || "Analysis failed.");
+            setLoading(false);
+          }
+        })
+        .catch((jobError) => {
+          setError(formatError(jobError, "Unable to refresh analysis progress."));
+          setLoading(false);
+        });
+    }, 1200);
+
+    return () => window.clearInterval(timer);
+  }, [activeJob]);
+
+  async function handleAnalyze(payload: AnalyzeRequest) {
     setLoading(true);
     setError("");
+    setActiveJob(null);
 
     try {
-      const result = await apiRequest<AnalysisResult>("/analyze", {
+      const response = await apiRequest<{ job: AnalysisJob }>("/analyze", {
         method: "POST",
-        body: JSON.stringify({ url })
+        body: JSON.stringify(payload)
       });
-      setAnalysis(result);
-      await loadSessionData();
-      const refreshedHistory = await apiRequest<{ analyses: AnalysisSummary[] }>("/analyses");
-      setHistory(refreshedHistory.analyses);
-      setActiveAnalysisId(refreshedHistory.analyses[0]?.id);
+      setActiveJob(response.job);
     } catch (analysisError) {
       setError(formatError(analysisError, "Analysis failed."));
-    } finally {
       setLoading(false);
     }
   }
@@ -131,6 +157,7 @@ export default function App() {
     setActiveAnalysisId(undefined);
     setUser(null);
     setHistory([]);
+    setActiveJob(null);
   }
 
   if (!authChecked) {
@@ -152,6 +179,7 @@ export default function App() {
       history={history}
       user={user}
       loading={loading}
+      activeJob={activeJob}
       error={error}
       onAnalyze={handleAnalyze}
       onSelectHistory={handleSelectHistory}
