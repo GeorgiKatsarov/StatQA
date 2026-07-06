@@ -8,7 +8,8 @@ function makeIssue(
   message: string,
   explanation: string,
   recommendation: string,
-  meta?: Issue["meta"]
+  meta?: Issue["meta"],
+  evidence?: Pick<Issue, "selector" | "screenshot">
 ): Issue {
   const metaKey = meta ? JSON.stringify(meta) : "no-meta";
   const rawId = `${pageUrl}:${category}:${severity}:${message}:${metaKey}`;
@@ -21,6 +22,8 @@ function makeIssue(
     message,
     explanation,
     recommendation,
+    selector: evidence?.selector,
+    screenshot: evidence?.screenshot,
     meta
   };
 }
@@ -99,26 +102,38 @@ export function validatePage(scraped: ScrapedData): Issue[] {
   }
 
   scraped.inputs.forEach((input, index) => {
-    if (!input.name) {
+    if (!input.editable || !input.visible) {
+      return;
+    }
+
+    const parentForm = input.formIndex ? scraped.forms[input.formIndex - 1] : undefined;
+    const participatesInSubmission = Boolean(parentForm?.hasSubmitButton);
+    const inputType = (input.type || "text").toLowerCase();
+    const shouldHaveSubmittedName =
+      participatesInSubmission && !["checkbox", "radio"].includes(inputType) && parentForm?.kind !== "login";
+
+    if (shouldHaveSubmittedName && !input.name) {
       issues.push(
         makeIssue(
           scraped.url,
           "inputs",
           "warning",
-          "Input missing name attribute",
-          "A form control is missing a name attribute.",
-          "Add a stable name to each submitted input.",
+          "Submitted input missing name attribute",
+          "A visible control inside a submitted form has no name, so its value may not be sent.",
+          "Add a stable name to controls that should be submitted.",
           {
             inputType: input.type || "unspecified",
             label: input.label || "unlabeled",
             placeholder: input.placeholder || "none",
+            formKind: parentForm?.kind || "unknown",
             fieldIndex: index + 1
-          }
+          },
+          { selector: input.selector, screenshot: input.screenshot }
         )
       );
     }
 
-    if (!input.label) {
+    if (!input.label && !input.placeholder) {
       issues.push(
         makeIssue(
           scraped.url,
@@ -131,15 +146,17 @@ export function validatePage(scraped: ScrapedData): Issue[] {
             inputType: input.type || "unspecified",
             name: input.name || "missing",
             placeholder: input.placeholder || "none",
+            formKind: parentForm?.kind || "standalone",
             fieldIndex: index + 1
-          }
+          },
+          { selector: input.selector, screenshot: input.screenshot }
         )
       );
     }
   });
 
   scraped.forms.forEach((form, index) => {
-    if (!form.hasSubmitButton) {
+    if (form.editableInputCount > 0 && !form.hasSubmitButton) {
       issues.push(
         makeIssue(
           scraped.url,
@@ -151,12 +168,36 @@ export function validatePage(scraped: ScrapedData): Issue[] {
           {
             action: form.action || "current page",
             method: form.method || "get",
+            formKind: form.kind,
+            editableInputCount: form.editableInputCount,
             formIndex: index + 1
-          }
+          },
+          { selector: form.selector, screenshot: form.screenshot }
         )
       );
     }
   });
+
+  for (const check of scraped.behaviorChecks) {
+    if (check.status !== "failed") {
+      continue;
+    }
+
+    issues.push(
+      makeIssue(
+        scraped.url,
+        "behavior",
+        check.category === "search" ? "error" : "warning",
+        check.category === "search" ? "Search submission did not respond" : "Form submission did not respond",
+        check.message,
+        check.category === "search"
+          ? "Make sure the search form submits a query, navigates, or visibly updates results."
+          : "Make sure the form has a working submit path and gives users clear feedback.",
+        check.meta,
+        { selector: check.selector, screenshot: check.screenshot }
+      )
+    );
+  }
 
   for (const image of scraped.images) {
     if (image.alt === null) {
@@ -168,7 +209,8 @@ export function validatePage(scraped: ScrapedData): Issue[] {
           "Image missing alt text",
           "An image is missing an alt attribute.",
           "Add descriptive alt text or an empty alt for decorative images.",
-          { src: image.src }
+          { src: image.src },
+          { selector: image.selector, screenshot: image.screenshot }
         )
       );
     }
@@ -184,7 +226,8 @@ export function validatePage(scraped: ScrapedData): Issue[] {
           "Link with empty text",
           "A link appears without readable text.",
           "Add descriptive anchor text.",
-          { href: link.href, isInternal: link.isInternal }
+          { href: link.href, isInternal: link.isInternal },
+          { selector: link.selector, screenshot: link.screenshot }
         )
       );
     }
@@ -234,5 +277,10 @@ export function validatePage(scraped: ScrapedData): Issue[] {
     issues.push(makeIssue(scraped.url, "content", "info", signal, "The page contains placeholder-style text.", "Replace placeholder copy with final production text."));
   }
 
-  return issues;
+  return scraped.pageScreenshot
+    ? issues.map((issue) => ({
+        ...issue,
+        screenshot: issue.screenshot ?? scraped.pageScreenshot
+      }))
+    : issues;
 }

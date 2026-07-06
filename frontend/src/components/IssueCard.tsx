@@ -26,6 +26,15 @@ export function IssueCard({ issue }: IssueCardProps) {
   const linkPreview = issue.meta?.href && typeof issue.meta.href === "string" ? issue.meta.href : null;
   const consolePreview =
     issue.meta?.consoleError && typeof issue.meta.consoleError === "string" ? issue.meta.consoleError : null;
+  const screenshot = issue.screenshot;
+  const highlightStyle = screenshot
+    ? {
+        left: `${(screenshot.highlight.x / screenshot.width) * 100}%`,
+        top: `${(screenshot.highlight.y / screenshot.height) * 100}%`,
+        width: `${(screenshot.highlight.width / screenshot.width) * 100}%`,
+        height: `${(screenshot.highlight.height / screenshot.height) * 100}%`
+      }
+    : undefined;
 
   return (
     <article className="issue-card">
@@ -37,6 +46,15 @@ export function IssueCard({ issue }: IssueCardProps) {
       <p className="issue-url">{issue.pageUrl}</p>
       <div className="issue-copy">
         <p>{issue.explanation}</p>
+        {screenshot ? (
+          <div className="issue-preview">
+            <span className="eyebrow">Screenshot evidence</span>
+            <div className="issue-screenshot-frame">
+              <img className="issue-screenshot" src={screenshot.dataUrl} alt={`Screenshot evidence for ${issue.message}`} />
+              <span className="issue-screenshot-highlight" style={highlightStyle} aria-hidden="true" />
+            </div>
+          </div>
+        ) : null}
         {imagePreview ? (
           <div className="issue-preview">
             <span className="eyebrow">Element preview</span>

@@ -5,6 +5,7 @@ export type IssueCategory =
   | "buttons"
   | "inputs"
   | "forms"
+  | "behavior"
   | "images"
   | "structure"
   | "meta"
@@ -17,6 +18,8 @@ export interface LinkSnapshot {
   href: string;
   text: string;
   isInternal: boolean;
+  selector?: string;
+  screenshot?: IssueScreenshot;
 }
 
 export interface ButtonSnapshot {
@@ -30,17 +33,31 @@ export interface InputSnapshot {
   label: string | null;
   required: boolean;
   placeholder: string | null;
+  visible: boolean;
+  disabled: boolean;
+  editable: boolean;
+  formIndex: number | null;
+  selector?: string;
+  screenshot?: IssueScreenshot;
 }
 
 export interface FormSnapshot {
   action: string | null;
   method: string | null;
   hasSubmitButton: boolean;
+  inputCount: number;
+  editableInputCount: number;
+  requiredInputCount: number;
+  kind: "search" | "login" | "contact" | "newsletter" | "generic";
+  selector?: string;
+  screenshot?: IssueScreenshot;
 }
 
 export interface ImageSnapshot {
   src: string;
   alt: string | null;
+  selector?: string;
+  screenshot?: IssueScreenshot;
 }
 
 export interface AccessibilitySignals {
@@ -69,6 +86,32 @@ export interface ScrapedData {
   consoleErrors: string[];
   loadTimeMs: number;
   accessibilitySignals: AccessibilitySignals;
+  behaviorChecks: BehaviorCheck[];
+  pageScreenshot?: IssueScreenshot;
+}
+
+export interface BehaviorCheck {
+  id: string;
+  pageUrl: string;
+  category: "search" | "form";
+  target: string;
+  status: "passed" | "failed" | "skipped";
+  message: string;
+  selector?: string;
+  screenshot?: IssueScreenshot;
+  meta?: Record<string, string | number | boolean | null>;
+}
+
+export interface IssueScreenshot {
+  dataUrl: string;
+  width: number;
+  height: number;
+  highlight: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 export interface Issue {
@@ -80,6 +123,7 @@ export interface Issue {
   explanation: string;
   recommendation: string;
   selector?: string;
+  screenshot?: IssueScreenshot;
   meta?: Record<string, string | number | boolean | null>;
 }
 
@@ -132,4 +176,3 @@ export interface AuthUser {
   createdAt: string;
   updatedAt: string;
 }
-

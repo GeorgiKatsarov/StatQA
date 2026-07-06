@@ -6,6 +6,18 @@ export interface AnalysisIssue {
   message: string;
   explanation: string;
   recommendation: string;
+  selector?: string;
+  screenshot?: {
+    dataUrl: string;
+    width: number;
+    height: number;
+    highlight: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+  };
   meta?: Record<string, string | number | boolean | null>;
 }
 

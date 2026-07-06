@@ -7,6 +7,28 @@ build/
 coverage/
 .DS_Store
 Thumbs.db
+
+# Local databases and service data
+.pgdata/
+pgdata/
+postgres-data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+
+# Logs and runtime scratch files
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+tmp/
+temp/
+
+# Tool output
 playwright-report/
 test-results/
 .cache/

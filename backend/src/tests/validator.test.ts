@@ -13,8 +13,30 @@ function makeScrapedData(): ScrapedData {
     headings: [],
     links: [{ href: "https://example.com/about", text: "", isInternal: true }],
     buttons: [],
-    inputs: [{ type: "text", name: null, label: null, required: false, placeholder: null }],
-    forms: [{ action: null, method: "post", hasSubmitButton: false }],
+    inputs: [
+      {
+        type: "text",
+        name: null,
+        label: null,
+        required: false,
+        placeholder: null,
+        visible: true,
+        disabled: false,
+        editable: true,
+        formIndex: 1
+      }
+    ],
+    forms: [
+      {
+        action: null,
+        method: "get",
+        hasSubmitButton: true,
+        inputCount: 1,
+        editableInputCount: 1,
+        requiredInputCount: 0,
+        kind: "search"
+      }
+    ],
     images: [{ src: "https://example.com/image.jpg", alt: null }],
     videos: [],
     iframes: [],
@@ -27,6 +49,33 @@ function makeScrapedData(): ScrapedData {
     accessibilitySignals: {
       unlabeledInputs: 1,
       landmarksPresent: []
+    },
+    behaviorChecks: [
+      {
+        id: "search-failed",
+        pageUrl: "https://example.com",
+        category: "search",
+        target: "search form 1",
+        status: "failed",
+        message: "search form 1 did not navigate or send a request after deterministic submission.",
+        meta: {
+          formKind: "search",
+          method: "get",
+          changedUrl: false,
+          requestSeen: false
+        }
+      }
+    ],
+    pageScreenshot: {
+      dataUrl: "data:image/png;base64,test",
+      width: 100,
+      height: 80,
+      highlight: {
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80
+      }
     }
   };
 }
@@ -40,4 +89,6 @@ test("validatePage returns expected issue categories for obvious failures", () =
   assert.equal(categories.has("performance"), true);
   assert.equal(categories.has("console"), true);
   assert.equal(categories.has("content"), true);
+  assert.equal(categories.has("behavior"), true);
+  assert.equal(issues.every((issue) => issue.screenshot?.dataUrl === "data:image/png;base64,test"), true);
 });
