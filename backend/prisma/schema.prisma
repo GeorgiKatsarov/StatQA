@@ -21,6 +21,10 @@ model User {
   acceptedTermsAt DateTime?
   analysesCount Int        @default(0)
   analyses      Analysis[]
+  qaTests       QaGeneratedTest[]
+  qaRuns        QaTestRun[]
+  qaDatasets    QaTestDataset[]
+  qaSchedules   QaRunSchedule[]
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 }
@@ -36,4 +40,101 @@ model Analysis {
   createdAt   DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+enum QaTestStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum QaRunStatus {
+  PASSED
+  FAILED
+  NEEDS_REVIEW
+}
+
+model QaGeneratedTest {
+  id          String       @id @default(cuid())
+  userId      String
+  projectName String       @default("Default workspace")
+  targetUrl   String
+  title       String
+  riskArea    String
+  priority    String
+  testType    String
+  rationale   String
+  steps       Json
+  assertions  Json
+  testData    Json?
+  sourceContext String?
+  status      QaTestStatus @default(ACTIVE)
+  archivedAt  DateTime?
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runs        QaTestRun[]
+  schedules   QaRunSchedule[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([userId, status, createdAt])
+  @@index([userId, projectName, status, createdAt])
+  @@index([userId, targetUrl])
+}
+
+model QaTestRun {
+  id          String          @id @default(cuid())
+  userId      String
+  testId      String
+  projectName String          @default("Default workspace")
+  targetUrl   String
+  status      QaRunStatus
+  summary     String
+  details     Json
+  analysisId  String?
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  test        QaGeneratedTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  createdAt   DateTime        @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, projectName, createdAt])
+  @@index([testId, createdAt])
+}
+
+model QaTestDataset {
+  id          String   @id @default(cuid())
+  userId      String
+  projectName String   @default("Default workspace")
+  targetUrl   String
+  scenario    String
+  fields      String[]
+  datasetName String
+  records     Json
+  usageNotes  String[]
+  source      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, projectName, createdAt])
+  @@index([userId, targetUrl])
+}
+
+model QaRunSchedule {
+  id          String          @id @default(cuid())
+  userId      String
+  testId      String
+  projectName String          @default("Default workspace")
+  targetUrl   String
+  frequency   String
+  enabled     Boolean         @default(true)
+  nextRunAt   DateTime
+  lastRunAt   DateTime?
+  lastRunId   String?
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  test        QaGeneratedTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([userId, enabled, nextRunAt])
+  @@index([userId, projectName, enabled, nextRunAt])
+  @@index([testId])
 }

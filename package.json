@@ -10,6 +10,7 @@
     "dev:backend": "npm run dev --workspace backend",
     "build:backend": "npm run build --workspace backend",
     "dev:frontend": "npm run dev --workspace frontend",
-    "build:frontend": "npm run build --workspace frontend"
+    "build:frontend": "npm run build --workspace frontend",
+    "test:browser": "node --test e2e/*.browser.test.mjs"
   }
 }

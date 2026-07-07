@@ -3,6 +3,7 @@ import express from "express";
 import { authRouter } from "./routes/auth.js";
 import { analyzeRouter } from "./routes/analyze.js";
 import { analysesRouter } from "./routes/analyses.js";
+import { qaRouter } from "./routes/qa.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 export function createApp() {
@@ -25,6 +26,7 @@ export function createApp() {
   app.use("/auth", authRouter);
   app.use("/analyze", analyzeRouter);
   app.use("/analyses", analysesRouter);
+  app.use("/qa", qaRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

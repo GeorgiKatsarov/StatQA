@@ -8,6 +8,7 @@ import { HistoryList } from "../components/HistoryList";
 import { IssueList } from "../components/IssueList";
 import { MetricsPanel } from "../components/MetricsPanel";
 import { PageBreakdown } from "../components/PageBreakdown";
+import { QaWorkspace } from "../components/QaWorkspace";
 import { RemediationPlan } from "../components/RemediationPlan";
 import { ReportActions } from "../components/ReportActions";
 import { ScanProgress, estimateScanSeconds } from "../components/ScanProgress";
@@ -423,7 +424,15 @@ export function Dashboard({
     <section className="panel">
       <div className="panel-header">
         <h2>No report loaded</h2>
-        <p>Run a scan or select a previous analysis from history.</p>
+        <p>This page shows full-site scan reports. Generated test run results are shown in QA reporting.</p>
+      </div>
+      <div className="actions-row">
+        <button className="primary-button" type="button" onClick={() => setActivePage("qa-reports")}>
+          Open QA reporting
+        </button>
+        <button className="secondary-button" type="button" onClick={() => setActivePage("history")}>
+          View scan history
+        </button>
       </div>
     </section>
   );
@@ -513,6 +522,7 @@ export function Dashboard({
             />
           ) : null}
           {activePage === "reports" ? reportContent : null}
+          {activePage.startsWith("qa-") ? <QaWorkspace activePage={activePage} defaultUrl={getTargetUrl()} /> : null}
           {activePage === "history" ? (
             <HistoryList history={history} activeAnalysisId={activeAnalysisId} onSelect={selectHistory} />
           ) : null}

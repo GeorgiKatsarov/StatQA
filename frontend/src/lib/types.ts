@@ -121,3 +121,90 @@ export interface RegisterFormData {
   marketingOptIn: boolean;
   acceptedTerms: boolean;
 }
+
+export interface QaGeneratedTest {
+  id: string;
+  projectName: string;
+  targetUrl: string;
+  title: string;
+  riskArea: string;
+  priority: "critical" | "high" | "medium" | "low";
+  testType: "behavior" | "security" | "content" | "accessibility" | "regression";
+  rationale: string;
+  steps: string[];
+  assertions: string[];
+  testData?: Record<string, string | number | boolean | null> | null;
+  sourceContext?: string | null;
+  status: "ACTIVE" | "ARCHIVED";
+  archivedAt?: string | null;
+  runs?: QaTestRun[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QaTestRun {
+  id: string;
+  testId: string;
+  projectName: string;
+  targetUrl: string;
+  status: "PASSED" | "FAILED" | "NEEDS_REVIEW";
+  summary: string;
+  details: Record<string, unknown>;
+  analysisId?: string | null;
+  test?: Pick<QaGeneratedTest, "title" | "riskArea" | "priority" | "testType">;
+  createdAt: string;
+}
+
+export interface QaRunSchedule {
+  id: string;
+  testId: string;
+  projectName: string;
+  targetUrl: string;
+  frequency: "daily" | "weekly" | "monthly" | string;
+  enabled: boolean;
+  nextRunAt: string;
+  lastRunAt?: string | null;
+  lastRunId?: string | null;
+  test?: Pick<QaGeneratedTest, "title" | "riskArea" | "priority" | "testType">;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QaDataset {
+  datasetName: string;
+  records: Array<Record<string, string | number | boolean | null>>;
+  usageNotes: string[];
+}
+
+export interface QaSavedDataset {
+  id: string;
+  projectName: string;
+  targetUrl: string;
+  scenario: string;
+  fields: string[];
+  datasetName: string;
+  records: Array<Record<string, string | number | boolean | null>>;
+  usageNotes: string[];
+  source: "groq" | "fallback" | string;
+  createdAt: string;
+}
+
+export interface QaAiStatus {
+  groqConfigured: boolean;
+  model: string;
+}
+
+export interface QaGenerationMeta {
+  source: "groq" | "fallback";
+  fallbackReason?: string;
+}
+
+export interface QaReportSummary {
+  activeTests: number;
+  archivedTests: number;
+  totalRuns: number;
+  runsByStatus: Record<string, number>;
+  recentRuns: QaTestRun[];
+  latestTests: QaGeneratedTest[];
+  schedules?: QaRunSchedule[];
+}
