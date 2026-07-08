@@ -220,6 +220,7 @@ export interface QaFrameworkRequest {
   supportedBrowsers: string[];
   includeCi: boolean;
   portfolioMode: boolean;
+  confidentialTestAccounts?: string;
 }
 
 export interface QaManualFrameworkTest {
