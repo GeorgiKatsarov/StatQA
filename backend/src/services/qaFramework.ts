@@ -28,6 +28,15 @@ export type {
   SuitabilityResult
 };
 
+type FrameworkBuildInput = Partial<FrameworkRequest> & {
+  confidentialTestAccounts?: string;
+};
+
+interface ConfidentialAccountConfig {
+  provided: boolean;
+  estimatedCount: number;
+}
+
 export interface FrameworkRunCheck {
   title: string;
   path: string;
@@ -48,9 +57,10 @@ export interface FrameworkRunResult {
   checks: FrameworkRunCheck[];
 }
 
-export async function buildFrameworkPackage(input: Partial<FrameworkRequest>): Promise<FrameworkBuilderResult> {
-  const result = await buildRuntimeFrameworkPackage(input);
-  const strictFiles = enforceStrictFrameworkGuidelines(result.files.map(enhanceGeneratedFile), result);
+export async function buildFrameworkPackage(input: FrameworkBuildInput): Promise<FrameworkBuilderResult> {
+  const accountConfig = summarizeConfidentialAccounts(input.confidentialTestAccounts);
+  const result = await buildRuntimeFrameworkPackage(stripConfidentialInput(input));
+  const strictFiles = enforceStrictFrameworkGuidelines(result.files.map((file) => enhanceGeneratedFile(file, accountConfig)), result, accountConfig);
 
   return {
     ...result,
@@ -63,7 +73,7 @@ export async function buildFrameworkPackage(input: Partial<FrameworkRequest>): P
   };
 }
 
-export async function runFrameworkTests(input: Partial<FrameworkRequest>): Promise<{ framework: FrameworkBuilderResult; run: FrameworkRunResult }> {
+export async function runFrameworkTests(input: FrameworkBuildInput): Promise<{ framework: FrameworkBuilderResult; run: FrameworkRunResult }> {
   const framework = await buildFrameworkPackage(input);
   const startedAt = new Date().toISOString();
   const checks: FrameworkRunCheck[] = [];
@@ -104,12 +114,8 @@ export async function runFrameworkTests(input: Partial<FrameworkRequest>): Promi
         const bodyText = (await page.locator("body").innerText({ timeout: 3_000 }).catch(() => "")).trim();
         const bodyVisible = await page.locator("body").isVisible({ timeout: 2_000 }).catch(() => false);
 
-        if (status >= 400) {
-          throw new Error(`HTTP ${status}`);
-        }
-        if (!bodyVisible || bodyText.length < 10) {
-          throw new Error("Page body did not render meaningful visible content.");
-        }
+        if (status >= 400) throw new Error(`HTTP ${status}`);
+        if (!bodyVisible || bodyText.length < 10) throw new Error("Page body did not render meaningful visible content.");
 
         checks.push({
           title: `Public page contract: ${evidencePage.path}`,
@@ -144,51 +150,41 @@ export async function runFrameworkTests(input: Partial<FrameworkRequest>): Promi
       status: failed ? "failed" : "passed",
       startedAt,
       finishedAt,
-      summary: {
-        total: checks.length,
-        passed: checks.length - failed,
-        failed
-      },
+      summary: { total: checks.length, passed: checks.length - failed, failed },
       checks
     }
   };
 }
 
-function enforceStrictFrameworkGuidelines(files: GeneratedFrameworkFile[], result: FrameworkBuilderResult): GeneratedFrameworkFile[] {
+function enforceStrictFrameworkGuidelines(files: GeneratedFrameworkFile[], result: FrameworkBuilderResult, accountConfig: ConfidentialAccountConfig): GeneratedFrameworkFile[] {
   const withoutWeakGeneratedSpec = files.filter((file) => file.path !== "tests/generated/site-evidence.spec.ts" && file.path !== "pages/PublicPage.ts");
   const strictFiles = [
     ...withoutWeakGeneratedSpec,
     frameworkFile("docs/automation-guidelines.md", "Strict Playwright/POM engineering rules followed by the generated framework.", "markdown", automationGuidelines()),
+    frameworkFile("docs/secrets-management.md", "How confidential test accounts are wired into tests without leaking credentials.", "markdown", secretsManagementDoc(accountConfig)),
     frameworkFile("test-data/siteEvidence.ts", "Typed evidence fixture consumed by generated specs.", "typescript", siteEvidenceFixture(result.siteEvidence)),
+    frameworkFile("config/testAccounts.ts", "Environment-driven test account helper. No real secret values are generated into source code.", "typescript", testAccountsConfig(accountConfig)),
     frameworkFile("pages/BasePage.ts", "Base page abstraction shared by generated page objects.", "typescript", basePageObject()),
     frameworkFile("pages/PublicPage.ts", "Public page object for evidence-backed smoke and content contracts.", "typescript", strictPublicPageObject()),
     frameworkFile("tests/generated/public-pages.spec.ts", "POM-based public page smoke coverage generated from observed evidence.", "typescript", publicPagesSpec(result)),
     frameworkFile("tests/generated/content-contract.spec.ts", "POM-based visible content contracts generated from observed headings and titles.", "typescript", contentContractSpec(result)),
-    frameworkFile("tests/generated/navigation-contract.spec.ts", "POM-based non-destructive navigation inventory checks.", "typescript", navigationContractSpec(result))
+    frameworkFile("tests/generated/navigation-contract.spec.ts", "POM-based non-destructive navigation inventory checks.", "typescript", navigationContractSpec(result)),
+    frameworkFile("tests/generated/test-account-config.spec.ts", "Optional confidential test account configuration check.", "typescript", testAccountConfigSpec())
   ];
 
-  return strictFiles.map(enhanceGeneratedFile);
+  return strictFiles.map((file) => enhanceGeneratedFile(file, accountConfig));
 }
 
-function enhanceGeneratedFile(file: GeneratedFrameworkFile): GeneratedFrameworkFile {
-  if (file.path === "package.json") {
-    return enhancePackageJson(file);
-  }
-
-  if (file.path === "README.md") {
-    return enhanceReadme(file);
-  }
-
+function enhanceGeneratedFile(file: GeneratedFrameworkFile, accountConfig: ConfidentialAccountConfig): GeneratedFrameworkFile {
+  if (file.path === "package.json") return enhancePackageJson(file);
+  if (file.path === "README.md") return enhanceReadme(file, accountConfig);
+  if (file.path === ".env.example") return enhanceEnvExample(file, accountConfig);
   return file;
 }
 
 function enhancePackageJson(file: GeneratedFrameworkFile): GeneratedFrameworkFile {
   try {
-    const packageJson = JSON.parse(file.content) as {
-      scripts?: Record<string, string>;
-      [key: string]: unknown;
-    };
-
+    const packageJson = JSON.parse(file.content) as { scripts?: Record<string, string>; [key: string]: unknown };
     packageJson.scripts = {
       ...(packageJson.scripts ?? {}),
       "test": "playwright test tests/generated",
@@ -200,17 +196,38 @@ function enhancePackageJson(file: GeneratedFrameworkFile): GeneratedFrameworkFil
       "test:smoke": "playwright test tests/generated/public-pages.spec.ts",
       "test:contracts": "playwright test tests/generated/content-contract.spec.ts tests/generated/navigation-contract.spec.ts"
     };
-
-    return {
-      ...file,
-      content: JSON.stringify(packageJson, null, 2)
-    };
+    return { ...file, content: JSON.stringify(packageJson, null, 2) };
   } catch {
     return file;
   }
 }
 
-function enhanceReadme(file: GeneratedFrameworkFile): GeneratedFrameworkFile {
+function enhanceEnvExample(file: GeneratedFrameworkFile, accountConfig: ConfidentialAccountConfig): GeneratedFrameworkFile {
+  const accountLines = accountConfig.provided
+    ? `
+# Optional confidential test account placeholders.
+# Real values are never generated into this file by StatQA.
+TEST_USER_EMAIL=
+TEST_USER_PASSWORD=
+TEST_USER_ROLE=primary
+TEST_USER_OTP_SECRET=
+`
+    : `
+# Optional: add a safe non-production test account before authenticated tests are enabled.
+TEST_USER_EMAIL=
+TEST_USER_PASSWORD=
+TEST_USER_ROLE=primary
+TEST_USER_OTP_SECRET=
+`;
+
+  return {
+    ...file,
+    content: `${file.content.trim()}
+${accountLines}`
+  };
+}
+
+function enhanceReadme(file: GeneratedFrameworkFile, accountConfig: ConfidentialAccountConfig): GeneratedFrameworkFile {
   return {
     ...file,
     content: `${file.content.trim()}
@@ -222,9 +239,24 @@ This is a full Playwright TypeScript framework, not a raw generated spec dump. T
 - Tests live in \`tests/generated\`.
 - Page objects live in \`pages\`.
 - Shared observed evidence lives in \`test-data/siteEvidence.ts\`.
+- Confidential test account access lives in \`config/testAccounts.ts\`.
 - Specs use page objects and fixtures instead of repeating raw selectors everywhere.
 - Assertions are public, non-destructive, and based on observed site evidence.
 - Private/authenticated/destructive flows must be added only after safe credentials, setup, cleanup, and test data contracts exist.
+
+## Confidential test accounts
+
+${accountConfig.provided ? `StatQA detected confidential account input for about ${accountConfig.estimatedCount} account entry${accountConfig.estimatedCount === 1 ? "" : "ies"}. The actual values were intentionally not written into this repository.` : "No confidential account values were provided during generation."}
+
+Add real non-production values locally in \`.env\`:
+
+\`\`\`env
+TEST_USER_EMAIL=qa-user@example.test
+TEST_USER_PASSWORD=replace-locally
+TEST_USER_ROLE=primary
+\`\`\`
+
+Never commit real account passwords, tokens, or OTP secrets.
 
 ## Common run commands
 
@@ -274,6 +306,7 @@ function automationGuidelines(): string {
 
 - \`pages/BasePage.ts\` contains shared page behavior.
 - \`pages/PublicPage.ts\` contains public page evidence contracts.
+- \`config/testAccounts.ts\` exposes safe environment-driven account helpers.
 - \`test-data/siteEvidence.ts\` stores observed pages and content.
 - \`tests/generated/*.spec.ts\` contains POM-based runnable specs.
 
@@ -282,6 +315,77 @@ function automationGuidelines(): string {
 - Prefer status, body visibility, and stable visible text contracts.
 - Keep link checks non-destructive.
 - Treat private flows as manual until credentials and reset-safe data exist.
+`;
+}
+
+function secretsManagementDoc(accountConfig: ConfidentialAccountConfig): string {
+  return `# Secrets Management
+
+StatQA supports confidential test account input, but it does not write real secrets into generated source files.
+
+## What happened during generation
+
+- Confidential account field provided: ${accountConfig.provided ? "yes" : "no"}
+- Estimated account entries: ${accountConfig.estimatedCount}
+- Real secret values written into the ZIP: no
+
+## How to use accounts locally
+
+1. Copy \`.env.example\` to \`.env\`.
+2. Add safe, non-production credentials:
+
+\`\`\`env
+TEST_USER_EMAIL=qa-user@example.test
+TEST_USER_PASSWORD=replace-locally
+TEST_USER_ROLE=primary
+TEST_USER_OTP_SECRET=
+\`\`\`
+
+3. Import \`requirePrimaryTestAccount\` from \`config/testAccounts.ts\` inside authenticated tests.
+4. Add login selectors only after confirming the login page and cleanup rules.
+
+## Rules
+
+- Never commit real passwords, tokens, cookies, or OTP seeds.
+- Never use production customer accounts.
+- Prefer test accounts that can be reset safely.
+- Keep destructive tests behind explicit cleanup contracts.
+`;
+}
+
+function testAccountsConfig(_accountConfig: ConfidentialAccountConfig): string {
+  return `export interface TestAccount {
+  role: string;
+  email: string;
+  password: string;
+  otpSecret?: string;
+}
+
+export function hasConfiguredTestAccount(): boolean {
+  return Boolean(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
+}
+
+export function getPrimaryTestAccount(): TestAccount | null {
+  if (!hasConfiguredTestAccount()) {
+    return null;
+  }
+
+  return {
+    role: process.env.TEST_USER_ROLE || "primary",
+    email: process.env.TEST_USER_EMAIL!,
+    password: process.env.TEST_USER_PASSWORD!,
+    otpSecret: process.env.TEST_USER_OTP_SECRET || undefined
+  };
+}
+
+export function requirePrimaryTestAccount(): TestAccount {
+  const account = getPrimaryTestAccount();
+  if (!account) {
+    throw new Error("Missing TEST_USER_EMAIL and TEST_USER_PASSWORD. Add safe non-production credentials to .env before running authenticated tests.");
+  }
+
+  return account;
+}
 `;
 }
 
@@ -296,7 +400,6 @@ function siteEvidenceFixture(evidence: SiteEvidence): string {
     links: page.links.filter((link) => link.internal).map((link) => ({ text: link.text, href: link.href })).slice(0, 10),
     textSnippets: page.textSnippets.slice(0, 6)
   }));
-
   return `export const siteEvidence = ${JSON.stringify({ targetUrl: evidence.targetUrl, origin: evidence.origin, pages }, null, 2)} as const;
 
 export type SiteEvidencePage = (typeof siteEvidence.pages)[number];
@@ -419,6 +522,36 @@ test.describe(${appName} + " navigation inventory contracts", () => {
   }
 });
 `;
+}
+
+function testAccountConfigSpec(): string {
+  return `import { expect, test } from "@playwright/test";
+import { getPrimaryTestAccount, hasConfiguredTestAccount, requirePrimaryTestAccount } from "../../config/testAccounts";
+
+test.describe("confidential test account configuration", () => {
+  test("primary test account can be loaded from environment when configured", async () => {
+    test.skip(!hasConfiguredTestAccount(), "Set TEST_USER_EMAIL and TEST_USER_PASSWORD in .env to enable authenticated-account tests.");
+
+    const account = requirePrimaryTestAccount();
+    expect(account.email).toContain("@");
+    expect(account.password.length).toBeGreaterThan(0);
+    expect(getPrimaryTestAccount()?.role).toBeTruthy();
+  });
+});
+`;
+}
+
+function stripConfidentialInput(input: FrameworkBuildInput): Partial<FrameworkRequest> {
+  const { confidentialTestAccounts: _confidentialTestAccounts, ...safeInput } = input;
+  return safeInput;
+}
+
+function summarizeConfidentialAccounts(value?: string): ConfidentialAccountConfig {
+  const cleaned = value?.trim() ?? "";
+  if (!cleaned) return { provided: false, estimatedCount: 0 };
+  const nonEmptyLines = cleaned.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const accountLikeLines = nonEmptyLines.filter((line) => /@|user|email|password|pass|token|role/i.test(line));
+  return { provided: true, estimatedCount: Math.max(1, Math.min(10, accountLikeLines.length || nonEmptyLines.length)) };
 }
 
 function frameworkFile(path: string, purpose: string, language: FrameworkLanguage, content: string): GeneratedFrameworkFile {
