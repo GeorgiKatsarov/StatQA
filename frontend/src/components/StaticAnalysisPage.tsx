@@ -242,7 +242,7 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
             <div className="qa-list compact-framework-list">
               {history.map((item) => (
                 <button key={item.id} className={item.id === activeAnalysisId ? "sidebar-item active" : "sidebar-item"} type="button" onClick={() => void onSelectHistory(item.id)}>
-                  <span>{item.rootUrl}</span>
+                  <span>{item.url}</span>
                   <small>{item.score} - {new Date(item.createdAt).toLocaleString()}</small>
                 </button>
               ))}
