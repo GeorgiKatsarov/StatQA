@@ -5,33 +5,35 @@ interface AppSidebarProps {
 
 const sections = [
   {
-    title: "Assess",
-    summary: "Find website quality, behavior, and security risks.",
+    title: "Generate",
+    summary: "Turn app context into a downloadable Playwright TypeScript framework.",
     pages: [
-      { id: "scan", label: "Run scan", hint: "Start here" },
-      { id: "static", label: "Risk signals", hint: "Content and runtime" },
-      { id: "behavior", label: "Behavior tests", hint: "Safe interactions" },
-      { id: "security", label: "Security risks", hint: "Headers and forms" },
+      { id: "qa-framework", label: "Framework builder", hint: "Hero feature" },
+      { id: "qa-generate", label: "Manual test cases", hint: "Risk-based source" },
+      { id: "qa-run", label: "Run generated tests", hint: "Execution" },
+      { id: "qa-reports", label: "QA evidence", hint: "Results" }
+    ]
+  },
+  {
+    title: "Assess",
+    summary: "Scan a live site for quality, behavior, and security signals.",
+    pages: [
+      { id: "scan", label: "Run scan", hint: "URL evidence" },
+      { id: "static", label: "Risk signals", hint: "Content/runtime" },
+      { id: "behavior", label: "Behavior checks", hint: "Safe interactions" },
+      { id: "security", label: "Security risks", hint: "Headers/forms" },
       { id: "reports", label: "Scan reports", hint: "Findings" },
       { id: "history", label: "History", hint: "Saved scans" }
     ]
   },
   {
-    title: "Build test suite",
-    summary: "Manual tests, automation, execution, and export.",
+    title: "Prepare",
+    summary: "Manage reusable inputs and defaults for repeatable QA work.",
     pages: [
-      { id: "qa-generate", label: "1. Manual tests", hint: "Create and review" },
-      { id: "qa-framework", label: "2. Automatic tests", hint: "Build Playwright suite" },
-      { id: "qa-run", label: "3. Test the tests", hint: "Execute checks" },
-      { id: "qa-reports", label: "4. Results", hint: "Runs and evidence" },
-      { id: "qa-data", label: "Test data", hint: "Synthetic datasets" },
-      { id: "qa-archive", label: "Archive", hint: "Older tests" }
+      { id: "qa-data", label: "Test data", hint: "Datasets" },
+      { id: "qa-archive", label: "Archive", hint: "Older tests" },
+      { id: "settings", label: "Settings", hint: "Defaults" }
     ]
-  },
-  {
-    title: "Configure",
-    summary: "Set defaults for scans and QA work.",
-    pages: [{ id: "settings", label: "Settings", hint: "Defaults" }]
   }
 ];
 
@@ -39,9 +41,11 @@ export function AppSidebar({ activePage, onSelect }: AppSidebarProps) {
   return (
     <aside className="app-sidebar panel">
       <div className="sidebar-header">
-        <p className="eyebrow">Workflow</p>
-        <h2>QA cockpit</h2>
-        <p>Move from scan evidence to generated tests and a downloadable automation framework.</p>
+        <p className="eyebrow">StatQA workflow</p>
+        <h2>Framework cockpit</h2>
+        <p>
+          Create a reviewable QA package: manual cases, automation decisions, Playwright specs, CI, reports, and a downloadable ZIP.
+        </p>
       </div>
       <nav className="stack" aria-label="Main navigation">
         {sections.map((section) => (
