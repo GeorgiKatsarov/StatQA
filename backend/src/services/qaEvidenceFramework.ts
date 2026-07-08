@@ -63,13 +63,17 @@ export interface FrameworkValidation {
   warnings: string[];
 }
 
+export interface SiteTextEvidence {
+  text: string;
+}
+
 export interface SitePageEvidence {
   url: string;
   path: string;
   title: string;
   status: number | null;
-  headings: string[];
-  buttons: string[];
+  headings: SiteTextEvidence[];
+  buttons: SiteTextEvidence[];
   links: Array<{ text: string; href: string; internal: boolean }>;
   inputs: Array<{ type: string; name?: string; label?: string; placeholder?: string }>;
   forms: Array<{ name: string; inputs: Array<{ type: string; name?: string; placeholder?: string }>; submitLabels: string[] }>;
@@ -271,17 +275,9 @@ async function inspectPage(page: Page, url: string, origin: string): Promise<Sit
       cleanText(element.getAttribute("placeholder"));
     const unique = (items: string[]) => Array.from(new Set(items.map(cleanText).filter(Boolean)));
 
-    const headings = unique(
-      Array.from(document.querySelectorAll("h1, h2, h3"))
-        .filter(isVisible)
-        .map(elementText)
-    ).slice(0, 12);
-
-    const buttons = unique(
-      Array.from(document.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button']"))
-        .filter(isVisible)
-        .map(elementText)
-    ).slice(0, 12);
+    const textEvidence = (selector: string) => unique(Array.from(document.querySelectorAll(selector)).filter(isVisible).map(elementText)).slice(0, 12).map((text) => ({ text }));
+    const headings = textEvidence("h1, h2, h3");
+    const buttons = textEvidence("button, [role='button'], input[type='submit'], input[type='button']");
 
     const links = Array.from(document.querySelectorAll("a[href]"))
       .filter(isVisible)
@@ -311,11 +307,7 @@ async function inspectPage(page: Page, url: string, origin: string): Promise<Sit
             placeholder: cleanText(element.getAttribute("placeholder")) || undefined
           }))
           .slice(0, 12),
-        submitLabels: unique(
-          Array.from(form.querySelectorAll("button, input[type='submit']"))
-            .filter(isVisible)
-            .map(elementText)
-        ).slice(0, 5)
+        submitLabels: unique(Array.from(form.querySelectorAll("button, input[type='submit']")).filter(isVisible).map(elementText)).slice(0, 5)
       }))
       .slice(0, 8);
 
@@ -361,10 +353,7 @@ async function generateManualTestsWithAI(project: FrameworkRequest, evidence: Si
       },
       {
         role: "user",
-        content: `Generate 8-12 manual tests from this observed site evidence. Return only a JSON array.
-
-Project: ${JSON.stringify(project)}
-Evidence: ${JSON.stringify(compactEvidence(evidence))}`
+        content: `Generate 8-12 manual tests from this observed site evidence. Return only a JSON array.\n\nProject: ${JSON.stringify(project)}\nEvidence: ${JSON.stringify(compactEvidence(evidence))}`
       }
     ]);
 
@@ -376,12 +365,7 @@ Evidence: ${JSON.stringify(compactEvidence(evidence))}`
   }
 }
 
-async function generateAutomationBlueprintsWithAI(
-  project: FrameworkRequest,
-  evidence: SiteEvidence,
-  tests: ManualFrameworkTest[],
-  suitability: SuitabilityResult[]
-): Promise<AutomationBlueprint[]> {
+async function generateAutomationBlueprintsWithAI(project: FrameworkRequest, evidence: SiteEvidence, tests: ManualFrameworkTest[], suitability: SuitabilityResult[]): Promise<AutomationBlueprint[]> {
   const fallback = createFallbackBlueprints(evidence, tests, suitability);
   const automatableTests = tests.filter((test) => suitability.some((item) => item.testCaseId === test.id && item.recommendation === "automate"));
 
@@ -398,36 +382,19 @@ async function generateAutomationBlueprintsWithAI(
       },
       {
         role: "user",
-        content: `Create automation blueprints from observed evidence and automatable tests.
-
-Allowed assertion kinds: page-load, title-contains, body-contains, heading-visible, button-visible, link-visible, internal-link-ok.
-
-Return JSON: { "tests": [{ "id": "AUTO-EVIDENCE-001", "testCaseId": "TC-EVIDENCE-001", "title": "Readable title", "pageUrl": "observed URL", "tags": ["smoke"], "assertions": [{ "kind": "page-load" }] }] }
-
-Project: ${JSON.stringify(project)}
-Evidence: ${JSON.stringify(compactEvidence(evidence))}
-Manual tests: ${JSON.stringify(automatableTests)}`
+        content: `Create automation blueprints from observed evidence and automatable tests. Allowed assertion kinds: page-load, title-contains, body-contains, heading-visible, button-visible, link-visible, internal-link-ok. Return JSON: { "tests": [{ "id": "AUTO-EVIDENCE-001", "testCaseId": "TC-EVIDENCE-001", "title": "Readable title", "pageUrl": "observed URL", "tags": ["smoke"], "assertions": [{ "kind": "page-load" }] }] }.\n\nProject: ${JSON.stringify(project)}\nEvidence: ${JSON.stringify(compactEvidence(evidence))}\nManual tests: ${JSON.stringify(automatableTests)}`
       }
     ]);
 
     const rawTests = Array.isArray((result as { tests?: unknown[] }).tests) ? (result as { tests: unknown[] }).tests : [];
-    const blueprints = rawTests
-      .map((item) => normalizeBlueprint(item, evidence, automatableTests))
-      .filter((blueprint): blueprint is AutomationBlueprint => Boolean(blueprint));
-
+    const blueprints = rawTests.map((item) => normalizeBlueprint(item, evidence, automatableTests)).filter((blueprint): blueprint is AutomationBlueprint => Boolean(blueprint));
     return blueprints.length ? blueprints.slice(0, 12) : fallback;
   } catch {
     return fallback;
   }
 }
 
-function createFrameworkFiles(
-  project: FrameworkRequest,
-  evidence: SiteEvidence,
-  tests: ManualFrameworkTest[],
-  suitability: SuitabilityResult[],
-  blueprints: AutomationBlueprint[]
-): GeneratedFrameworkFile[] {
+function createFrameworkFiles(project: FrameworkRequest, evidence: SiteEvidence, tests: ManualFrameworkTest[], suitability: SuitabilityResult[], blueprints: AutomationBlueprint[]): GeneratedFrameworkFile[] {
   const files: GeneratedFrameworkFile[] = [
     frameworkFile("package.json", "Playwright package with useful scripts.", "json", packageJson(project)),
     frameworkFile("tsconfig.json", "TypeScript configuration.", "json", tsconfigJson()),
@@ -450,13 +417,8 @@ function createFrameworkFiles(
     frameworkFile("tests/generated/site-evidence.spec.ts", "Runnable evidence-backed Playwright tests.", "typescript", generatedSiteEvidenceSpec(project, evidence, blueprints))
   ];
 
-  if (project.includeCi) {
-    files.push(frameworkFile(".github/workflows/playwright.yml", "GitHub Actions workflow.", "yaml", githubWorkflow()));
-  }
-
-  if (project.portfolioMode) {
-    files.push(frameworkFile("docs/interview-demo-script.md", "Portfolio walkthrough script.", "markdown", interviewScript(project)));
-  }
+  if (project.includeCi) files.push(frameworkFile(".github/workflows/playwright.yml", "GitHub Actions workflow.", "yaml", githubWorkflow()));
+  if (project.portfolioMode) files.push(frameworkFile("docs/interview-demo-script.md", "Portfolio walkthrough script.", "markdown", interviewScript(project)));
 
   return files;
 }
@@ -464,56 +426,17 @@ function createFrameworkFiles(
 function createFallbackManualTests(project: FrameworkRequest, evidence: SiteEvidence): ManualFrameworkTest[] {
   const firstPage = evidence.pages[0];
   if (!firstPage) {
-    return [manualTest({
-      id: "TC-EVIDENCE-001",
-      title: "Target site needs accessible public evidence before automation",
-      feature: "Environment access",
-      objective: "Document that automation is blocked until StatQA can observe at least one public page.",
-      automationSuitability: "manual-only",
-      testerNotes: evidence.error ?? "No public page evidence was collected."
-    })];
+    return [manualTest({ id: "TC-EVIDENCE-001", title: "Target site needs accessible public evidence before automation", feature: "Environment access", objective: "Document that automation is blocked until StatQA can observe at least one public page.", automationSuitability: "manual-only", testerNotes: evidence.error ?? "No public page evidence was collected." })];
   }
 
-  const tests: ManualFrameworkTest[] = [
-    manualTest({
-      id: "TC-EVIDENCE-001",
-      title: `${project.applicationName} public entry page loads successfully`,
-      feature: "Public availability",
-      objective: "Verify that the observed public entry page responds and renders stable content.",
-      priority: "critical",
-      severity: "blocker",
-      automationSuitability: "automate",
-      tags: ["smoke", "regression", "public-page"],
-      riskArea: "Public availability"
-    })
-  ];
+  const tests: ManualFrameworkTest[] = [manualTest({ id: "TC-EVIDENCE-001", title: `${project.applicationName} public entry page loads successfully`, feature: "Public availability", objective: "Verify that the observed public entry page responds and renders stable content.", priority: "critical", severity: "blocker", automationSuitability: "automate", tags: ["smoke", "regression", "public-page"], riskArea: "Public availability" })];
 
   for (const page of evidence.pages.slice(1, 5)) {
-    tests.push(manualTest({
-      id: `TC-EVIDENCE-${String(tests.length + 1).padStart(3, "0")}`,
-      title: `Observed internal page remains reachable: ${page.path}`,
-      feature: "Internal navigation",
-      objective: "Verify that an internally discovered public page continues to load and render observed content.",
-      priority: "high",
-      severity: "major",
-      automationSuitability: "automate",
-      tags: ["navigation", "regression"],
-      riskArea: "Broken navigation"
-    }));
+    tests.push(manualTest({ id: `TC-EVIDENCE-${String(tests.length + 1).padStart(3, "0")}`, title: `Observed internal page remains reachable: ${page.path}`, feature: "Internal navigation", objective: "Verify that an internally discovered public page continues to load and render observed content.", priority: "high", severity: "major", automationSuitability: "automate", tags: ["navigation", "regression"], riskArea: "Broken navigation" }));
   }
 
   if (evidence.summary.formsFound > 0) {
-    tests.push(manualTest({
-      id: `TC-EVIDENCE-${String(tests.length + 1).padStart(3, "0")}`,
-      title: "Observed forms are visible and ready for safe validation review",
-      feature: "Observed forms",
-      objective: "Confirm visible forms are available before adding submission automation.",
-      priority: "medium",
-      severity: "major",
-      automationSuitability: "needs-clarification",
-      tags: ["forms", "validation", "needs-review"],
-      riskArea: "Form validation"
-    }));
+    tests.push(manualTest({ id: `TC-EVIDENCE-${String(tests.length + 1).padStart(3, "0")}`, title: "Observed forms are visible and ready for safe validation review", feature: "Observed forms", objective: "Confirm visible forms are available before adding submission automation.", priority: "medium", severity: "major", automationSuitability: "needs-clarification", tags: ["forms", "validation", "needs-review"], riskArea: "Form validation" }));
   }
 
   return tests;
@@ -553,9 +476,7 @@ function createSuitability(tests: ManualFrameworkTest[], evidence: SiteEvidence)
       testCaseId: test.id,
       recommendation: canAutomate ? "automate" : test.automationSuitability === "manual-only" ? "manual-only" : "needs-clarification",
       score: canAutomate ? (test.priority === "critical" ? 94 : 88) : 45,
-      reasons: canAutomate
-        ? ["Grounded in observed site evidence", "Uses public page/content/link assertions", "Does not require private credentials"]
-        : ["Requires more evidence, safe test data, credentials, or business-rule confirmation"],
+      reasons: canAutomate ? ["Grounded in observed site evidence", "Uses public page/content/link assertions", "Does not require private credentials"] : ["Requires more evidence, safe test data, credentials, or business-rule confirmation"],
       blockers: canAutomate ? [] : [evidence.error ?? "Not enough safe evidence for runnable automation"],
       selectorAssumptions: canAutomate ? ["Generated assertions use observed public evidence"] : [],
       testDataNeeds: test.testData,
@@ -567,42 +488,28 @@ function createSuitability(tests: ManualFrameworkTest[], evidence: SiteEvidence)
 
 function createFallbackBlueprints(evidence: SiteEvidence, tests: ManualFrameworkTest[], suitability: SuitabilityResult[]): AutomationBlueprint[] {
   const automatableIds = new Set(suitability.filter((item) => item.recommendation === "automate").map((item) => item.testCaseId));
-  return tests
-    .filter((test) => automatableIds.has(test.id))
-    .slice(0, Math.max(1, Math.min(8, evidence.pages.length)))
-    .flatMap((test, index) => {
-      const page = evidence.pages[index % evidence.pages.length];
-      if (!page) {
-        return [];
-      }
+  return tests.filter((test) => automatableIds.has(test.id)).slice(0, Math.max(1, Math.min(8, evidence.pages.length))).flatMap((test, index) => {
+    const page = evidence.pages[index % evidence.pages.length];
+    if (!page) return [];
 
-      const assertions: AutomationAssertion[] = [{ kind: "page-load" }];
-      if (page.headings[0]) assertions.push({ kind: "heading-visible", value: page.headings[0] });
-      else if (page.title) assertions.push({ kind: "title-contains", value: page.title });
-      else if (page.textSnippets[0]) assertions.push({ kind: "body-contains", value: page.textSnippets[0] });
+    const assertions: AutomationAssertion[] = [{ kind: "page-load" }];
+    if (page.headings[0]?.text) assertions.push({ kind: "heading-visible", value: page.headings[0].text });
+    else if (page.title) assertions.push({ kind: "title-contains", value: page.title });
+    else if (page.textSnippets[0]) assertions.push({ kind: "body-contains", value: page.textSnippets[0] });
 
-      const internalLink = page.links.find((link) => link.internal);
-      if (internalLink?.text) assertions.push({ kind: "link-visible", value: internalLink.text });
-      if (internalLink?.href) assertions.push({ kind: "internal-link-ok", href: internalLink.href });
+    const internalLink = page.links.find((link) => link.internal);
+    if (internalLink?.text) assertions.push({ kind: "link-visible", value: internalLink.text });
+    if (internalLink?.href) assertions.push({ kind: "internal-link-ok", href: internalLink.href });
 
-      return [{
-        id: `AUTO-EVIDENCE-${String(index + 1).padStart(3, "0")}`,
-        testCaseId: test.id,
-        title: test.title,
-        pageUrl: page.url,
-        tags: normalizeTags(test.tags),
-        assertions: assertions.slice(0, 5)
-      }];
-    });
+    return [{ id: `AUTO-EVIDENCE-${String(index + 1).padStart(3, "0")}`, testCaseId: test.id, title: test.title, pageUrl: page.url, tags: normalizeTags(test.tags), assertions: assertions.slice(0, 5) }];
+  });
 }
 
 function normalizeManualTest(input: unknown): ManualFrameworkTest | null {
   const item = input as Record<string, unknown>;
   const id = clean(String(item.id ?? ""));
   const title = clean(String(item.title ?? ""));
-  if (!id.startsWith("TC-") || !title) {
-    return null;
-  }
+  if (!id.startsWith("TC-") || !title) return null;
 
   const steps = Array.isArray(item.steps)
     ? item.steps.map((step) => {
@@ -620,12 +527,12 @@ function normalizeManualTest(input: unknown): ManualFrameworkTest | null {
     testData: stringArray(item.testData, ["No private credentials required"]),
     steps: steps.length ? steps : undefined,
     finalExpectedResult: clean(String(item.finalExpectedResult ?? "Expected public behavior is preserved.")),
-    priority: enumValue(item.priority, ["low", "medium", "high", "critical"], "medium"),
-    severity: enumValue(item.severity, ["minor", "major", "critical", "blocker"], "major"),
+    priority: priorityValue(item.priority),
+    severity: severityValue(item.severity),
     testType: clean(String(item.testType ?? "Smoke, regression")),
     testLevel: clean(String(item.testLevel ?? "End-to-end")),
-    classification: enumValue(item.classification, ["positive", "negative", "boundary"], "positive"),
-    automationSuitability: enumValue(item.automationSuitability, ["automate", "manual-only", "needs-clarification"], "needs-clarification"),
+    classification: classificationValue(item.classification),
+    automationSuitability: automationSuitabilityValue(item.automationSuitability),
     automationNotes: clean(String(item.automationNotes ?? "Requires evidence review.")),
     tags: stringArray(item.tags, ["regression"]),
     riskArea: clean(String(item.riskArea ?? "Regression risk")),
@@ -640,24 +547,12 @@ function normalizeBlueprint(input: unknown, evidence: SiteEvidence, tests: Manua
   const page = evidence.pages.find((candidate) => candidate.url === pageUrl);
   const linkedTest = tests.find((test) => test.id === testCaseId);
   const rawAssertions = Array.isArray(item.assertions) ? item.assertions : [];
-  const assertions = rawAssertions
-    .map((assertion) => normalizeAssertion(assertion, page, evidence.origin))
-    .filter((assertion): assertion is AutomationAssertion => Boolean(assertion));
+  const assertions = rawAssertions.map((assertion) => normalizeAssertion(assertion, page, evidence.origin)).filter((assertion): assertion is AutomationAssertion => Boolean(assertion));
 
-  if (!page || !linkedTest || !assertions.some((assertion) => assertion.kind !== "page-load")) {
-    return null;
-  }
+  if (!page || !linkedTest || !assertions.some((assertion) => assertion.kind !== "page-load")) return null;
 
   const pageLoadAssertion: AutomationAssertion = { kind: "page-load" };
-
-  return {
-    id: clean(String(item.id ?? "")) || `AUTO-EVIDENCE-${testCaseId}`,
-    testCaseId,
-    title: clean(String(item.title ?? linkedTest.title)),
-    pageUrl,
-    tags: normalizeTags(stringArray(item.tags, linkedTest.tags)),
-    assertions: [pageLoadAssertion, ...assertions.filter((assertion) => assertion.kind !== "page-load")].slice(0, 5)
-  };
+  return { id: clean(String(item.id ?? "")) || `AUTO-EVIDENCE-${testCaseId}`, testCaseId, title: clean(String(item.title ?? linkedTest.title)), pageUrl, tags: normalizeTags(stringArray(item.tags, linkedTest.tags)), assertions: [pageLoadAssertion, ...assertions.filter((assertion) => assertion.kind !== "page-load")].slice(0, 5) };
 }
 
 function normalizeAssertion(input: unknown, page: SitePageEvidence | undefined, origin: string): AutomationAssertion | null {
@@ -669,8 +564,8 @@ function normalizeAssertion(input: unknown, page: SitePageEvidence | undefined, 
   if (kind === "page-load") return { kind };
   if (kind === "title-contains" && value && page.title.toLowerCase().includes(value.toLowerCase())) return { kind, value };
   if (kind === "body-contains" && value && page.textSnippets.some((text) => text.toLowerCase().includes(value.toLowerCase()))) return { kind, value };
-  if (kind === "heading-visible" && value && page.headings.some((heading) => heading.toLowerCase().includes(value.toLowerCase()))) return { kind, value };
-  if (kind === "button-visible" && value && page.buttons.some((button) => button.toLowerCase().includes(value.toLowerCase()))) return { kind, value };
+  if (kind === "heading-visible" && value && page.headings.some((heading) => heading.text.toLowerCase().includes(value.toLowerCase()))) return { kind, value };
+  if (kind === "button-visible" && value && page.buttons.some((button) => button.text.toLowerCase().includes(value.toLowerCase()))) return { kind, value };
   if (kind === "link-visible" && value && page.links.some((link) => link.text.toLowerCase().includes(value.toLowerCase()))) return { kind, value };
   if (kind === "internal-link-ok" && href && safeSameOrigin(href, origin) && page.links.some((link) => link.href === href && link.internal)) return { kind, href };
   return null;
@@ -678,35 +573,17 @@ function normalizeAssertion(input: unknown, page: SitePageEvidence | undefined, 
 
 function generatedSiteEvidenceSpec(project: FrameworkRequest, evidence: SiteEvidence, blueprints: AutomationBlueprint[]): string {
   if (!evidence.pages.length || !blueprints.length) {
-    return `import { test, expect } from "@playwright/test";
-
-test.describe("${escapeForTemplate(project.applicationName)} evidence generation", () => {
-  test("site analysis collected public evidence", async () => {
-    expect(${evidence.pages.length}).toBeGreaterThan(0);
-  });
-});
-`;
+    return `import { test, expect } from "@playwright/test";\n\ntest.describe("${escapeForTemplate(project.applicationName)} evidence generation", () => {\n  test("site analysis collected public evidence", async () => {\n    expect(${evidence.pages.length}).toBeGreaterThan(0);\n  });\n});\n`;
   }
 
   const tests = blueprints.map((blueprint) => {
     const pagePath = toRelativePath(blueprint.pageUrl, evidence.origin);
     const tagSuffix = blueprint.tags.length ? ` ${blueprint.tags.map((tag) => `@${tag}`).join(" ")}` : "";
     const assertionLines = blueprint.assertions.map(assertionToCode).filter(Boolean).map((line) => `    ${line}`).join("\n");
-
-    return `  test(${JSON.stringify(`${blueprint.testCaseId}: ${blueprint.title}${tagSuffix}`)}, async ({ page, request }) => {
-    const response = await page.goto(${JSON.stringify(pagePath)}, { waitUntil: "domcontentloaded" });
-    expect(response?.status() ?? 0).toBeLessThan(400);
-    await expect(page.locator("body")).toBeVisible();
-${assertionLines}
-  });`;
+    return `  test(${JSON.stringify(`${blueprint.testCaseId}: ${blueprint.title}${tagSuffix}`)}, async ({ page, request }) => {\n    const response = await page.goto(${JSON.stringify(pagePath)}, { waitUntil: "domcontentloaded" });\n    expect(response?.status() ?? 0).toBeLessThan(400);\n    await expect(page.locator("body")).toBeVisible();\n${assertionLines}\n  });`;
   }).join("\n\n");
 
-  return `import { test, expect } from "@playwright/test";
-
-test.describe(${JSON.stringify(`${project.applicationName} AI evidence-backed tests`)}, () => {
-${tests}
-});
-`;
+  return `import { test, expect } from "@playwright/test";\n\ntest.describe(${JSON.stringify(`${project.applicationName} AI evidence-backed tests`)}, () => {\n${tests}\n});\n`;
 }
 
 function assertionToCode(assertion: AutomationAssertion): string {
@@ -756,19 +633,7 @@ function createTestStrategy(project: FrameworkRequest, evidence: SiteEvidence): 
 }
 
 function packageJson(project: FrameworkRequest): string {
-  return JSON.stringify({
-    name: `${slug(project.applicationName)}-playwright-framework`,
-    version: "1.0.0",
-    private: true,
-    scripts: {
-      test: "playwright test",
-      "test:generated": "playwright test tests/generated",
-      "test:headed": "playwright test --headed",
-      "test:ui": "playwright test --ui",
-      report: "playwright show-report reports/html-report"
-    },
-    devDependencies: { "@playwright/test": "^1.52.0", "@types/node": "^22.0.0", dotenv: "^16.4.5", typescript: "^5.8.3" }
-  }, null, 2);
+  return JSON.stringify({ name: `${slug(project.applicationName)}-playwright-framework`, version: "1.0.0", private: true, scripts: { test: "playwright test", "test:generated": "playwright test tests/generated", "test:headed": "playwright test --headed", "test:ui": "playwright test --ui", report: "playwright show-report reports/html-report" }, devDependencies: { "@playwright/test": "^1.52.0", "@types/node": "^22.0.0", dotenv: "^16.4.5", typescript: "^5.8.3" } }, null, 2);
 }
 
 function tsconfigJson(): string {
@@ -777,25 +642,7 @@ function tsconfigJson(): string {
 
 function playwrightConfig(project: FrameworkRequest): string {
   const projects = project.supportedBrowsers.map((browser) => `    { name: ${JSON.stringify(browser)} }`).join(",\n");
-  return `import { defineConfig } from "@playwright/test";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-export default defineConfig({
-  testDir: "./tests",
-  timeout: 30_000,
-  expect: { timeout: 10_000 },
-  fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  reporter: [["list"], ["html", { outputFolder: "reports/html-report", open: "never" }]],
-  use: { baseURL: process.env.BASE_URL, trace: "on-first-retry", screenshot: "only-on-failure", video: "retain-on-failure" },
-  projects: [
-${projects}
-  ]
-});
-`;
+  return `import { defineConfig } from "@playwright/test";\nimport dotenv from "dotenv";\n\ndotenv.config();\n\nexport default defineConfig({\n  testDir: "./tests",\n  timeout: 30_000,\n  expect: { timeout: 10_000 },\n  fullyParallel: true,\n  forbidOnly: !!process.env.CI,\n  retries: process.env.CI ? 2 : 0,\n  reporter: [["list"], ["html", { outputFolder: "reports/html-report", open: "never" }]],\n  use: { baseURL: process.env.BASE_URL, trace: "on-first-retry", screenshot: "only-on-failure", video: "retain-on-failure" },\n  projects: [\n${projects}\n  ]\n});\n`;
 }
 
 function gitignore(): string {
@@ -803,31 +650,7 @@ function gitignore(): string {
 }
 
 function readme(project: FrameworkRequest, evidence: SiteEvidence, blueprints: AutomationBlueprint[]): string {
-  return `# ${project.applicationName} Playwright Framework
-
-Generated by StatQA from real site evidence.
-
-- Pages analyzed: ${evidence.summary.pagesAnalyzed}
-- Manual tests: generated in docs/manual-test-cases.md
-- Runnable specs: ${blueprints.length ? "tests/generated/site-evidence.spec.ts" : "blocked until public evidence is available"}
-
-## Install
-
-\`\`\`bash
-npm install
-npx playwright install
-\`\`\`
-
-## Run
-
-\`\`\`bash
-cp .env.example .env
-npm test
-npm run report
-\`\`\`
-
-Generated tests use observed public evidence only. Private flows and destructive actions must be configured manually before automation.
-`;
+  return `# ${project.applicationName} Playwright Framework\n\nGenerated by StatQA from real site evidence.\n\n- Pages analyzed: ${evidence.summary.pagesAnalyzed}\n- Manual tests: generated in docs/manual-test-cases.md\n- Runnable specs: ${blueprints.length ? "tests/generated/site-evidence.spec.ts" : "blocked until public evidence is available"}\n\n## Install\n\n\`\`\`bash\nnpm install\nnpx playwright install\n\`\`\`\n\n## Run\n\n\`\`\`bash\ncp .env.example .env\nnpm test\nnpm run report\n\`\`\`\n\nGenerated tests use observed public evidence only. Private flows and destructive actions must be configured manually before automation.\n`;
 }
 
 function createManifest(project: FrameworkRequest, evidence: SiteEvidence, tests: ManualFrameworkTest[], blueprints: AutomationBlueprint[]) {
@@ -835,7 +658,7 @@ function createManifest(project: FrameworkRequest, evidence: SiteEvidence, tests
 }
 
 function siteAnalysisDoc(evidence: SiteEvidence): string {
-  return ["# Site Analysis Evidence", "", `Target: ${evidence.targetUrl}`, `Status: ${evidence.status}`, evidence.error ? `Error: ${evidence.error}` : "", "", "## Pages", ...evidence.pages.flatMap((page) => ["", `### ${page.path}`, `URL: ${page.url}`, `HTTP status: ${page.status ?? "unknown"}`, `Title: ${page.title || "No title observed"}`, `Headings: ${page.headings.join(", ") || "none"}`, `Buttons: ${page.buttons.join(", ") || "none"}`])].filter(Boolean).join("\n");
+  return ["# Site Analysis Evidence", "", `Target: ${evidence.targetUrl}`, `Status: ${evidence.status}`, evidence.error ? `Error: ${evidence.error}` : "", "", "## Pages", ...evidence.pages.flatMap((page) => ["", `### ${page.path}`, `URL: ${page.url}`, `HTTP status: ${page.status ?? "unknown"}`, `Title: ${page.title || "No title observed"}`, `Headings: ${page.headings.map((heading) => heading.text).join(", ") || "none"}`, `Buttons: ${page.buttons.map((button) => button.text).join(", ") || "none"}`])].filter(Boolean).join("\n");
 }
 
 function manualTestsDoc(tests: ManualFrameworkTest[]): string {
@@ -850,26 +673,11 @@ function automationDoc(tests: ManualFrameworkTest[], suitability: SuitabilityRes
 }
 
 function strategyDoc(project: FrameworkRequest, evidence: SiteEvidence): string {
-  return `# Test Strategy
-
-This framework was generated from observed public evidence for ${project.applicationName}.
-
-Pages analyzed: ${evidence.summary.pagesAnalyzed}
-Forms found: ${evidence.summary.formsFound}
-Internal links found: ${evidence.summary.internalLinksFound}
-`;
+  return `# Test Strategy\n\nThis framework was generated from observed public evidence for ${project.applicationName}.\n\nPages analyzed: ${evidence.summary.pagesAnalyzed}\nForms found: ${evidence.summary.formsFound}\nInternal links found: ${evidence.summary.internalLinksFound}\n`;
 }
 
 function qualityChecklist(): string {
-  return `# Quality Checklist
-
-- [ ] Run npm install.
-- [ ] Run npx playwright install.
-- [ ] Copy .env.example to .env.
-- [ ] Run npm test.
-- [ ] Review data/siteEvidence.json.
-- [ ] Add private/authenticated tests only after safe credentials and cleanup rules exist.
-`;
+  return `# Quality Checklist\n\n- [ ] Run npm install.\n- [ ] Run npx playwright install.\n- [ ] Copy .env.example to .env.\n- [ ] Run npm test.\n- [ ] Review data/siteEvidence.json.\n- [ ] Add private/authenticated tests only after safe credentials and cleanup rules exist.\n`;
 }
 
 function testMetadata(project: FrameworkRequest, evidence: SiteEvidence): string {
@@ -898,7 +706,7 @@ function calculateQuality(evidence: SiteEvidence, blueprints: AutomationBlueprin
 }
 
 function compactEvidence(evidence: SiteEvidence) {
-  return { targetUrl: evidence.targetUrl, origin: evidence.origin, status: evidence.status, summary: evidence.summary, pages: evidence.pages.map((page) => ({ url: page.url, path: page.path, status: page.status, title: page.title, headings: page.headings, buttons: page.buttons, internalLinks: page.links.filter((link) => link.internal), inputs: page.inputs, forms: page.forms, textSnippets: page.textSnippets })) };
+  return { targetUrl: evidence.targetUrl, origin: evidence.origin, status: evidence.status, summary: evidence.summary, pages: evidence.pages.map((page) => ({ url: page.url, path: page.path, status: page.status, title: page.title, headings: page.headings.map((heading) => heading.text), buttons: page.buttons.map((button) => button.text), internalLinks: page.links.filter((link) => link.internal), inputs: page.inputs, forms: page.forms, textSnippets: page.textSnippets })) };
 }
 
 function frameworkFile(path: string, purpose: string, language: FrameworkLanguage, content: string): GeneratedFrameworkFile {
@@ -918,8 +726,20 @@ function stringArray(value: unknown, fallback: string[]): string[] {
   return Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : fallback;
 }
 
-function enumValue<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  return allowed.includes(value as T) ? (value as T) : fallback;
+function priorityValue(value: unknown): ManualFrameworkTest["priority"] {
+  return value === "low" || value === "medium" || value === "high" || value === "critical" ? value : "medium";
+}
+
+function severityValue(value: unknown): ManualFrameworkTest["severity"] {
+  return value === "minor" || value === "major" || value === "critical" || value === "blocker" ? value : "major";
+}
+
+function classificationValue(value: unknown): ManualFrameworkTest["classification"] {
+  return value === "positive" || value === "negative" || value === "boundary" ? value : "positive";
+}
+
+function automationSuitabilityValue(value: unknown): ManualFrameworkTest["automationSuitability"] {
+  return value === "automate" || value === "manual-only" || value === "needs-clarification" ? value : "needs-clarification";
 }
 
 function normalizeTags(tags: string[]): string[] {
