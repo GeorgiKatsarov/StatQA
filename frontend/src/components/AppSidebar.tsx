@@ -13,6 +13,29 @@ const sections = [
   }
 ];
 
+const workflowSteps = [
+  {
+    title: "1. Describe the product",
+    detail: "Use this before generation. Add the real URL, business context, roles, flows, rules, risks, and optional safe test accounts."
+  },
+  {
+    title: "2. Generate the framework",
+    detail: "Use this when the context checklist is green. StatQA should be slow here because it analyzes the live site and builds the POM framework."
+  },
+  {
+    title: "3. Run generated checks",
+    detail: "Use this before downloading. It proves whether the generated browser checks can open the real observed pages from the app."
+  },
+  {
+    title: "4. Review failing checks",
+    detail: "Use this when the run is red. Fix product context, unreachable URLs, unstable public content, or unsafe assumptions, then regenerate."
+  },
+  {
+    title: "5. Download and continue locally",
+    detail: "Use this only after review. Add real secrets to .env locally, run npm test, then extend authenticated flows with cleanup-safe POMs."
+  }
+];
+
 export function AppSidebar({ activePage, onSelect }: AppSidebarProps) {
   return (
     <aside className="app-sidebar panel">
@@ -46,6 +69,20 @@ export function AppSidebar({ activePage, onSelect }: AppSidebarProps) {
           </div>
         ))}
       </nav>
+      <div className="nav-section workflow-guide-card">
+        <div className="nav-section-heading">
+          <p className="nav-section-title">How to use this page</p>
+          <span>Follow the workflow in order. Do not download first.</span>
+        </div>
+        <div className="qa-list compact-framework-list">
+          {workflowSteps.map((step) => (
+            <article className="test-row" key={step.title}>
+              <strong>{step.title}</strong>
+              <p>{step.detail}</p>
+            </article>
+          ))}
+        </div>
+      </div>
     </aside>
   );
 }
