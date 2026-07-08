@@ -111,6 +111,107 @@ function testSummary(state, projectName) {
   };
 }
 
+function frameworkFixture(payload = {}) {
+  const project = {
+    applicationName: payload.applicationName || "TaskPilot",
+    applicationUrl: payload.applicationUrl || "https://taskpilot.example.test",
+    productDescription: payload.productDescription || "Task management app for QA demo.",
+    mainRoles: payload.mainRoles || ["Admin", "Manager", "Contributor"],
+    criticalFlows: payload.criticalFlows || ["Login", "Create task"],
+    businessRules: payload.businessRules || ["Contributors cannot delete projects"],
+    riskAreas: payload.riskAreas || ["Authentication", "Permissions"],
+    supportedBrowsers: payload.supportedBrowsers || ["chromium", "firefox", "webkit"],
+    includeCi: payload.includeCi ?? true,
+    portfolioMode: payload.portfolioMode ?? true
+  };
+
+  return {
+    project,
+    testStrategy: {
+      objectives: ["Verify critical flows", "Separate manual and automation coverage"],
+      riskPriorities: ["Authentication: protect core access", "Permissions: prevent unauthorized actions"],
+      automationFocus: ["Login smoke", "Validation checks"],
+      manualFocus: ["Exploratory review"],
+      assumptions: ["Test credentials are supplied through environment variables"]
+    },
+    manualTests: [
+      {
+        id: "TC-AUTH-001",
+        feature: "Authentication",
+        title: "Manager can sign in with valid credentials",
+        objective: "Verify successful sign in.",
+        preconditions: ["Manager account exists"],
+        testData: ["MANAGER_EMAIL", "MANAGER_PASSWORD"],
+        steps: [
+          { action: "Open login page", expectedResult: "Login form is visible" },
+          { action: "Enter valid credentials", expectedResult: "Credentials are accepted" },
+          { action: "Submit form", expectedResult: "Dashboard is shown" }
+        ],
+        finalExpectedResult: "Manager is authenticated.",
+        priority: "critical",
+        severity: "blocker",
+        testType: "Smoke",
+        testLevel: "End-to-end",
+        classification: "positive",
+        automationSuitability: "automate",
+        automationNotes: "Stable smoke candidate.",
+        tags: ["auth", "smoke"],
+        riskArea: "Authentication",
+        testerNotes: "Use test account only."
+      }
+    ],
+    suitability: [
+      {
+        testCaseId: "TC-AUTH-001",
+        recommendation: "automate",
+        score: 94,
+        reasons: ["Repeatable", "Clear assertion"],
+        blockers: [],
+        selectorAssumptions: ["Accessible names exist"],
+        testDataNeeds: ["MANAGER_EMAIL"],
+        maintenanceRisk: "low",
+        recommendedAutomationLayer: "ui"
+      }
+    ],
+    files: [
+      {
+        path: "package.json",
+        purpose: "Package scripts",
+        language: "json",
+        content: JSON.stringify({ scripts: { test: "playwright test" } }, null, 2),
+        required: true
+      },
+      {
+        path: "playwright.config.ts",
+        purpose: "Playwright config",
+        language: "typescript",
+        content: "export default {};",
+        required: true
+      },
+      {
+        path: "tests/auth/login.spec.ts",
+        purpose: "Login tests",
+        language: "typescript",
+        content: "import { expect, test } from '@playwright/test';\ntest('login', async () => { expect(true).toBe(true); });",
+        required: true
+      },
+      {
+        path: "README.md",
+        purpose: "Documentation",
+        language: "markdown",
+        content: "# TaskPilot Playwright Framework",
+        required: true
+      }
+    ],
+    validation: {
+      exportReady: true,
+      blockingErrors: [],
+      warnings: []
+    },
+    generatedAt: new Date().toISOString()
+  };
+}
+
 async function setupMockApi(page, state) {
   await page.route(`${apiOrigin}/**`, async (route) => {
     const request = route.request();
@@ -145,6 +246,17 @@ async function setupMockApi(page, state) {
         projects.add(item.projectName);
       });
       await json(route, { projects: Array.from(projects).sort() });
+      return;
+    }
+
+    if (method === "GET" && path === "/qa/framework/demo") {
+      await json(route, { framework: frameworkFixture() });
+      return;
+    }
+
+    if (method === "POST" && path === "/qa/framework/generate") {
+      const payload = JSON.parse(request.postData() || "{}");
+      await json(route, { framework: frameworkFixture(payload) }, 201);
       return;
     }
 
@@ -317,7 +429,7 @@ test("QA workspace supports generation, scheduling, run refresh, and exports", a
 
   try {
     await page.goto(frontendUrl);
-    await page.getByRole("button", { name: "Test generation" }).click();
+    await page.getByRole("button", { name: "Manual tests" }).click();
     await page.getByLabel("Workspace").fill("Browser QA Project");
     await page.getByLabel("Target URL").fill("https://www.qacloud.dev/");
     await page.getByLabel("Test count").fill("2");
@@ -326,19 +438,21 @@ test("QA workspace supports generation, scheduling, run refresh, and exports", a
     await assertVisible(page, "Generated 2 tests with Groq");
     await assertVisible(page, "Checkout flow test 1");
     assert.equal(await page.getByText("Open checkout").count(), 0);
+    assert.equal(await page.getByRole("button", { name: "Test this case" }).count(), 0);
+    assert.equal(await page.getByLabel("Schedule frequency").count(), 0);
 
     await page.getByRole("button", { name: "Details" }).first().click();
     await assertVisible(page, "Open checkout");
 
+    await page.getByRole("button", { name: "Test the tests" }).click();
     await page.getByLabel("Schedule frequency").selectOption("daily");
     await page.getByRole("button", { name: "Schedule" }).first().click();
     await assertVisible(page, "Scheduled daily QA run");
 
-    await page.getByRole("button", { name: "Test running" }).click();
-    await page.getByRole("button", { name: "Run test" }).first().click();
+    await page.getByRole("button", { name: "Test this case" }).first().click();
     await assertVisible(page, "Run started. Job job-1");
 
-    await page.getByRole("button", { name: "QA reporting" }).click();
+    await page.getByRole("button", { name: "Results" }).click();
     await assertVisible(page, "Recent runs");
     await page.getByRole("button", { name: "Refresh result" }).first().click();
     await assertVisible(page, "PASSED - Browser QA Project");
@@ -364,6 +478,23 @@ test("QA workspace supports generation, scheduling, run refresh, and exports", a
       page.getByRole("button", { name: "Export dataset" }).click()
     ]);
     assert.equal(datasetDownload.suggestedFilename(), "checkout-synthetic-data.json");
+
+    await page.getByRole("button", { name: "Automatic tests" }).click();
+    await page.getByRole("button", { name: "Load TaskPilot demo" }).click();
+    await assertVisible(page, "Loaded the TaskPilot demo framework package.");
+    await page.getByRole("button", { name: "Manual tests Human-executable QA cases" }).click();
+    await assertVisible(page, "Manager can sign in with valid credentials");
+    await page.getByRole("button", { name: "Download suite" }).click();
+    await assertVisible(page, "playwright.config.ts");
+
+    const [frameworkDownload] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name: "Download framework + suite" }).click()
+    ]);
+    assert.equal(frameworkDownload.suggestedFilename(), "taskpilot-playwright-framework.zip");
+
+    await page.getByRole("button", { name: "Continue to test the tests" }).click();
+    await assertVisible(page, "Run generated tests against the site");
   } finally {
     await browser.close();
   }

@@ -208,3 +208,77 @@ export interface QaReportSummary {
   latestTests: QaGeneratedTest[];
   schedules?: QaRunSchedule[];
 }
+
+export interface QaFrameworkRequest {
+  applicationName: string;
+  applicationUrl: string;
+  productDescription: string;
+  mainRoles: string[];
+  criticalFlows: string[];
+  businessRules: string[];
+  riskAreas: string[];
+  supportedBrowsers: string[];
+  includeCi: boolean;
+  portfolioMode: boolean;
+}
+
+export interface QaManualFrameworkTest {
+  id: string;
+  feature: string;
+  title: string;
+  objective: string;
+  preconditions: string[];
+  testData: string[];
+  steps: Array<{ action: string; expectedResult: string }>;
+  finalExpectedResult: string;
+  priority: "low" | "medium" | "high" | "critical";
+  severity: "minor" | "major" | "critical" | "blocker";
+  testType: string;
+  testLevel: string;
+  classification: "positive" | "negative" | "boundary";
+  automationSuitability: "automate" | "manual-only" | "needs-clarification";
+  automationNotes: string;
+  tags: string[];
+  riskArea: string;
+  testerNotes: string;
+}
+
+export interface QaSuitabilityResult {
+  testCaseId: string;
+  recommendation: "automate" | "manual-only" | "needs-clarification";
+  score: number;
+  reasons: string[];
+  blockers: string[];
+  selectorAssumptions: string[];
+  testDataNeeds: string[];
+  maintenanceRisk: "low" | "medium" | "high";
+  recommendedAutomationLayer: "ui" | "api" | "mixed" | "none";
+}
+
+export interface QaGeneratedFrameworkFile {
+  path: string;
+  purpose: string;
+  language: "typescript" | "json" | "markdown" | "env" | "yaml" | "text";
+  content: string;
+  required: boolean;
+}
+
+export interface QaFrameworkBuilderResult {
+  project: QaFrameworkRequest;
+  testStrategy: {
+    objectives: string[];
+    riskPriorities: string[];
+    automationFocus: string[];
+    manualFocus: string[];
+    assumptions: string[];
+  };
+  manualTests: QaManualFrameworkTest[];
+  suitability: QaSuitabilityResult[];
+  files: QaGeneratedFrameworkFile[];
+  validation: {
+    exportReady: boolean;
+    blockingErrors: string[];
+    warnings: string[];
+  };
+  generatedAt: string;
+}

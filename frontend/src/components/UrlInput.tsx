@@ -53,25 +53,41 @@ export function UrlInput({
   onChange,
   onSubmit
 }: UrlInputProps) {
+  const selectedSuiteLabels = testSuites
+    .filter((suite) => selectedSuites.includes(suite.id))
+    .map((suite) => suite.label)
+    .join(", ");
+
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <p className="eyebrow">Main URL</p>
-        <h2>Run full-site analysis</h2>
+    <section className="panel scan-hero-panel">
+      <div className="scan-hero-copy">
+        <p className="eyebrow">Start here</p>
+        <h2>Run a website QA scan</h2>
         <p>
-          This URL is used as the crawl root. Estimated runtime before starting: {formatEstimate(estimatedSeconds)}.
+          Crawl a site, collect risk evidence, then turn the findings into generated QA tests or a Playwright framework.
         </p>
       </div>
-      <div className="input-row">
+      <div className="scan-command">
         <input
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder="https://example.com"
           disabled={loading}
+          aria-label="Website URL"
         />
-        <button onClick={onSubmit} disabled={loading || !value.trim()}>
+        <button className="primary-button" onClick={onSubmit} disabled={loading || !value.trim()}>
           {loading ? "Analyzing..." : "Run Analysis"}
         </button>
+      </div>
+      <div className="scan-meta-grid">
+        <div>
+          <span>Estimated runtime</span>
+          <strong>{formatEstimate(estimatedSeconds)}</strong>
+        </div>
+        <div>
+          <span>Enabled suites</span>
+          <strong>{selectedSuiteLabels}</strong>
+        </div>
       </div>
       <div className="suite-toggle-row" aria-label="Test suites">
         {testSuites.map((suite) => (
@@ -82,7 +98,7 @@ export function UrlInput({
               onChange={() => onToggleSuite(suite.id)}
               disabled={loading || (selectedSuites.length === 1 && selectedSuites.includes(suite.id))}
             />
-            {suite.label}
+            <span>{suite.label}</span>
           </label>
         ))}
       </div>

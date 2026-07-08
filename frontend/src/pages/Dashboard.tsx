@@ -149,6 +149,10 @@ export function Dashboard({
   }, [analysis?.createdAt]);
 
   useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [activePage]);
+
+  useEffect(() => {
     if (!loading) {
       return;
     }
@@ -483,10 +487,28 @@ export function Dashboard({
                 onSubmit={() => runCheck(selectedSuites, { url })}
               />
               {!analysis && !loading ? (
-                <section className="panel">
+                <section className="panel workflow-panel">
                   <div className="panel-header">
-                    <h2>Ready for analysis</h2>
-                    <p>Configure checks from the sidebar or run a full scan with the current defaults.</p>
+                    <p className="eyebrow">Recommended workflow</p>
+                    <h2>From scan evidence to QA automation</h2>
+                    <p>Start with a scan when you have a live URL, or jump straight into generated QA assets for planning and portfolio work.</p>
+                  </div>
+                  <div className="workflow-grid">
+                    <button className="workflow-step" type="button" onClick={() => setActivePage("scan")}>
+                      <span>1</span>
+                      <strong>Run a scan</strong>
+                      <p>Collect content, behavior, and security evidence from the target site.</p>
+                    </button>
+                    <button className="workflow-step" type="button" onClick={() => setActivePage("qa-generate")}>
+                      <span>2</span>
+                      <strong>Generate tests</strong>
+                      <p>Create risk-driven manual QA tests from page and business context.</p>
+                    </button>
+                    <button className="workflow-step" type="button" onClick={() => setActivePage("qa-framework")}>
+                      <span>3</span>
+                      <strong>Build framework</strong>
+                      <p>Preview and download a Playwright TypeScript framework ZIP.</p>
+                    </button>
                   </div>
                 </section>
               ) : null}
@@ -522,7 +544,7 @@ export function Dashboard({
             />
           ) : null}
           {activePage === "reports" ? reportContent : null}
-          {activePage.startsWith("qa-") ? <QaWorkspace activePage={activePage} defaultUrl={getTargetUrl()} /> : null}
+          {activePage.startsWith("qa-") ? <QaWorkspace activePage={activePage} defaultUrl={getTargetUrl()} onNavigate={setActivePage} /> : null}
           {activePage === "history" ? (
             <HistoryList history={history} activeAnalysisId={activeAnalysisId} onSelect={selectHistory} />
           ) : null}

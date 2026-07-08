@@ -58,7 +58,7 @@ export function Login({ mode, loading, error, onModeChange, onSubmit }: LoginPro
           <p className="eyebrow">Secure QA workspace</p>
           <h1>{mode === "login" ? "Sign in to StatQA" : "Create your StatQA account"}</h1>
           <p>
-            Run website audits, save evidence-backed reports, and turn findings into a prioritized remediation plan.
+            Scan websites, generate QA test assets, run checks, and build downloadable Playwright frameworks from one workspace.
           </p>
         </div>
 

@@ -12,17 +12,17 @@ export function TopBar({ email, fullName, companyName, analysesCount, onLogout }
   return (
     <header className="topbar">
       <div className="brand-lockup">
-        <div className="brand-mark">SQ</div>
+        <div className="brand-mark" aria-hidden="true">SQ</div>
         <div>
-          <p className="eyebrow">Website QA platform</p>
           <h1>StatQA</h1>
-          {accountLabel ? <p className="topbar-meta">{accountLabel}</p> : null}
-          <p className="topbar-meta">
-            {email} | {analysesCount} analyses run
-          </p>
+          <p className="topbar-meta">Website QA, generated tests, and Playwright framework builder</p>
         </div>
       </div>
       <div className="topbar-actions">
+        <div className="account-chip">
+          <strong>{accountLabel || email}</strong>
+          <span>{analysesCount} scan{analysesCount === 1 ? "" : "s"} run</span>
+        </div>
         <button className="secondary-button" onClick={onLogout}>
           Logout
         </button>

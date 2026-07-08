@@ -17,6 +17,7 @@ import {
   runQaTest,
   toggleQaSchedule
 } from "../services/qa.js";
+import { buildFrameworkPackage } from "../services/qaFramework.js";
 
 const qaRouter = Router();
 
@@ -53,12 +54,38 @@ const toggleScheduleSchema = z.object({
   enabled: z.boolean()
 });
 
+const frameworkBuilderSchema = z.object({
+  applicationName: z.string().trim().min(1).max(100).optional(),
+  applicationUrl: z.string().trim().url().optional(),
+  productDescription: z.string().trim().min(10).max(1200).optional(),
+  mainRoles: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
+  criticalFlows: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  businessRules: z.array(z.string().trim().min(1).max(240)).max(30).optional(),
+  riskAreas: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  supportedBrowsers: z.array(z.enum(["chromium", "firefox", "webkit"])).min(1).max(3).optional(),
+  includeCi: z.boolean().optional(),
+  portfolioMode: z.boolean().optional()
+});
+
 function projectNameFromQuery(req: AuthenticatedRequest) {
   return typeof req.query.projectName === "string" ? normalizeQaProjectName(req.query.projectName) : undefined;
 }
 
 qaRouter.get("/ai/status", authMiddleware, (_req, res) => {
   res.json(getQaAiStatus());
+});
+
+qaRouter.get("/framework/demo", authMiddleware, (_req, res) => {
+  res.json({ framework: buildFrameworkPackage({}) });
+});
+
+qaRouter.post("/framework/generate", authMiddleware, (req, res, next) => {
+  try {
+    const body = frameworkBuilderSchema.parse(req.body);
+    res.status(201).json({ framework: buildFrameworkPackage(body) });
+  } catch (error) {
+    next(error);
+  }
 });
 
 qaRouter.get("/projects", authMiddleware, async (req: AuthenticatedRequest, res, next) => {

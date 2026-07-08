@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../lib/api";
+import { FrameworkBuilder } from "./FrameworkBuilder";
 import type {
   QaAiStatus,
   QaDataset,
@@ -14,6 +15,7 @@ import type {
 interface QaWorkspaceProps {
   activePage: string;
   defaultUrl: string;
+  onNavigate: (page: string) => void;
 }
 
 const TEST_LIST_PAGE_SIZE = 20;
@@ -247,6 +249,8 @@ function TestCard({
   isRunning,
   expanded,
   selected,
+  actionsMode = "manage",
+  selectable = true,
   onSelect,
   onToggleExpanded,
   onArchive,
@@ -258,6 +262,8 @@ function TestCard({
   isRunning: boolean;
   expanded: boolean;
   selected: boolean;
+  actionsMode?: "review" | "manage" | "run";
+  selectable?: boolean;
   onSelect: (test: QaGeneratedTest, selected: boolean) => void;
   onToggleExpanded: (test: QaGeneratedTest) => void;
   onArchive: (test: QaGeneratedTest, archived: boolean) => void;
@@ -267,10 +273,12 @@ function TestCard({
   return (
     <article className={`qa-test-card ${expanded ? "qa-test-card-expanded" : "qa-test-card-collapsed"}`}>
       <div className="issue-head">
-        <label className="qa-select-test">
-          <input type="checkbox" checked={selected} onChange={(event) => onSelect(test, event.target.checked)} />
-          Select
-        </label>
+        {selectable ? (
+          <label className="qa-select-test">
+            <input type="checkbox" checked={selected} onChange={(event) => onSelect(test, event.target.checked)} />
+            Select
+          </label>
+        ) : null}
         <span className={`severity severity-${test.priority === "high" ? "error" : test.priority === "critical" ? "critical" : "info"}`}>
           {test.priority}
         </span>
@@ -307,9 +315,6 @@ function TestCard({
       ) : null}
       {runStatus ? <p className="qa-inline-status">{runStatus}</p> : null}
       <div className="actions-row">
-        <button className="primary-button" type="button" disabled={isRunning} onClick={() => onRun(test)}>
-          {isRunning ? "Starting run..." : "Run test"}
-        </button>
         <button
           className="secondary-button"
           type="button"
@@ -318,23 +323,34 @@ function TestCard({
         >
           {expanded ? "Hide details" : "Details"}
         </button>
-        <button
-          className="secondary-button"
-          type="button"
-          disabled={isRunning}
-          onClick={() => onArchive(test, test.status !== "ARCHIVED")}
-        >
-          {test.status === "ARCHIVED" ? "Restore" : "Archive"}
-        </button>
-        <button className="secondary-button" type="button" disabled={isRunning || test.status === "ARCHIVED"} onClick={() => onSchedule(test)}>
-          Schedule
-        </button>
+        {actionsMode === "run" ? (
+          <button className="primary-button" type="button" disabled={isRunning} onClick={() => onRun(test)}>
+            {isRunning ? "Starting run..." : "Test this case"}
+          </button>
+        ) : null}
+        {actionsMode !== "review" ? (
+          <>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={isRunning}
+              onClick={() => onArchive(test, test.status !== "ARCHIVED")}
+            >
+              {test.status === "ARCHIVED" ? "Restore" : "Archive"}
+            </button>
+            {actionsMode === "run" ? (
+              <button className="secondary-button" type="button" disabled={isRunning || test.status === "ARCHIVED"} onClick={() => onSchedule(test)}>
+                Schedule
+              </button>
+            ) : null}
+          </>
+        ) : null}
       </div>
     </article>
   );
 }
 
-export function QaWorkspace({ activePage, defaultUrl }: QaWorkspaceProps) {
+export function QaWorkspace({ activePage, defaultUrl, onNavigate }: QaWorkspaceProps) {
   const [tests, setTests] = useState<QaGeneratedTest[]>([]);
   const [archivedTests, setArchivedTests] = useState<QaGeneratedTest[]>([]);
   const [runs, setRuns] = useState<QaTestRun[]>([]);
@@ -537,6 +553,10 @@ export function QaWorkspace({ activePage, defaultUrl }: QaWorkspaceProps) {
     setTestListLimit(TEST_LIST_PAGE_SIZE);
   }, [testSearch, activePage]);
 
+  if (activePage === "qa-framework") {
+    return <FrameworkBuilder defaultUrl={defaultUrl} onNavigate={onNavigate} />;
+  }
+
   async function generateTests() {
     setLoading(true);
     setMessage("");
@@ -733,10 +753,10 @@ export function QaWorkspace({ activePage, defaultUrl }: QaWorkspaceProps) {
   if (activePage === "qa-generate") {
     return (
       <section className="panel qa-panel">
-        <div className="panel-header">
-          <p className="eyebrow">Groq integration</p>
-          <h2>AI test generation</h2>
-          <p>Create risk-driven tests from the target URL and context.</p>
+        <div className="panel-header page-intro">
+          <p className="eyebrow">Step 1 - Manual tests</p>
+          <h2>Create manual QA test cases</h2>
+          <p>Start by producing human-readable test cases. Running and scheduling belongs later, after automation is created.</p>
         </div>
         <div className={aiStatus?.groqConfigured ? "qa-source-banner qa-source-ready" : "qa-source-banner qa-source-fallback"}>
           {aiStatus?.groqConfigured
@@ -745,83 +765,108 @@ export function QaWorkspace({ activePage, defaultUrl }: QaWorkspaceProps) {
         </div>
         {message ? <p className="info-banner">{message}</p> : null}
         {lastGenerationMeta?.source === "fallback" ? <p className="qa-inline-status">{lastGenerationMeta.fallbackReason}</p> : null}
-        <div className="qa-filter-row">
-          <WorkspaceField projectName={projectName} projects={projects} onProjectNameChange={setProjectName} />
+
+        <div className="workspace-flow-grid">
+          <div className="workflow-sidebar">
+            <div className="workflow-note">
+              <span>1</span>
+              <strong>Describe the target</strong>
+              <p>Use a real URL and name the main risks, users, or flows.</p>
+            </div>
+            <div className="workflow-note">
+              <span>2</span>
+              <strong>Generate tests</strong>
+              <p>Start small, review the output, then scale up to larger suites.</p>
+            </div>
+            <div className="workflow-note">
+              <span>3</span>
+              <strong>Run or package</strong>
+              <p>Move to Automatic tests when the manual cases are reviewed.</p>
+            </div>
+          </div>
+
+          <div className="workspace-main">
+            <section className="subpanel">
+              <div className="subpanel-heading">
+                <h3>Generation context</h3>
+                <p>Be specific. Better context produces better tests.</p>
+              </div>
+              <div className="qa-filter-row">
+                <WorkspaceField projectName={projectName} projects={projects} onProjectNameChange={setProjectName} />
+              </div>
+              <div className="qa-form-grid">
+                <label className="qa-field-wide">
+                  Target URL
+                  <input value={targetUrl} onChange={(event) => setTargetUrl(event.target.value)} />
+                </label>
+                <label className="qa-field-short">
+                  Test count
+                  <input type="number" min="1" max="100" value={testCount} onChange={(event) => setTestCount(Number(event.target.value))} />
+                </label>
+                <label className="qa-field-full">
+                  Risk context
+                  <textarea value={riskContext} onChange={(event) => setRiskContext(event.target.value)} />
+                </label>
+                <label className="qa-field-full">
+                  Page or business context
+                  <textarea value={pageContext} onChange={(event) => setPageContext(event.target.value)} />
+                </label>
+              </div>
+              <div className="actions-row">
+                <button className="primary-button" type="button" disabled={loading} onClick={generateTests}>
+                  {loading ? "Generating tests..." : "Generate tests"}
+                </button>
+                <span className="qa-help-text">Generate 3-8 tests first, then increase count after reviewing quality.</span>
+              </div>
+            </section>
+
+            <section className="subpanel">
+              <div className="subpanel-heading">
+                <h3>Manual test suite</h3>
+                <p>{filteredActiveTests.length} active test{filteredActiveTests.length === 1 ? "" : "s"} match this view.</p>
+              </div>
+              <div className="qa-filter-row">
+                <label>
+                  Search generated tests
+                  <input value={testSearch} onChange={(event) => setTestSearch(event.target.value)} placeholder="Title, risk, type, or URL" />
+                </label>
+              </div>
+              <div className="qa-list">
+                {visibleActiveTests.map((test) => (
+                  <TestCard
+                    key={test.id}
+                    test={test}
+                    runStatus={runFeedback[test.id]}
+                    isRunning={runningTestId === test.id}
+                    expanded={expandedTestIdSet.has(test.id)}
+                    selected={selectedTestIds.includes(test.id)}
+                    actionsMode="review"
+                    selectable={false}
+                    onSelect={selectTest}
+                    onToggleExpanded={toggleTestExpanded}
+                    onArchive={archiveTest}
+                    onSchedule={scheduleTest}
+                    onRun={runTest}
+                  />
+                ))}
+                {!filteredActiveTests.length ? <div className="empty-state qa-empty-state">No active tests match this search.</div> : null}
+              </div>
+              <ListLimitControls
+                total={filteredActiveTests.length}
+                visible={testListLimit}
+                onShowMore={() => setTestListLimit((current) => current + TEST_LIST_PAGE_SIZE)}
+                onShowAll={() => setTestListLimit(filteredActiveTests.length)}
+                onReset={() => setTestListLimit(TEST_LIST_PAGE_SIZE)}
+              />
+              <div className="actions-row">
+                <button className="primary-button" type="button" onClick={() => onNavigate("qa-framework")}>
+                  Continue to automatic tests
+                </button>
+                <span className="qa-help-text">Review the manual cases first, then generate the Playwright suite.</span>
+              </div>
+            </section>
+          </div>
         </div>
-        <div className="qa-form-grid">
-          <label className="qa-field-wide">
-            Target URL
-            <input value={targetUrl} onChange={(event) => setTargetUrl(event.target.value)} />
-          </label>
-          <label className="qa-field-short">
-            Test count
-            <input type="number" min="1" max="100" value={testCount} onChange={(event) => setTestCount(Number(event.target.value))} />
-          </label>
-          <label className="qa-field-full">
-            Risk context
-            <textarea value={riskContext} onChange={(event) => setRiskContext(event.target.value)} />
-          </label>
-          <label className="qa-field-full">
-            Page or business context
-            <textarea value={pageContext} onChange={(event) => setPageContext(event.target.value)} />
-          </label>
-        </div>
-        <div className="actions-row">
-          <button className="primary-button" type="button" disabled={loading} onClick={generateTests}>
-            {loading ? "Generating tests..." : "Generate tests"}
-          </button>
-          <span className="qa-help-text">You can generate up to 100 tests. Large runs are batched and may take longer.</span>
-        </div>
-        <div className="qa-filter-row">
-          <label>
-            Search generated tests
-            <input value={testSearch} onChange={(event) => setTestSearch(event.target.value)} placeholder="Title, risk, type, or URL" />
-          </label>
-          <label>
-            Schedule frequency
-            <select value={scheduleFrequency} onChange={(event) => setScheduleFrequency(event.target.value as "daily" | "weekly" | "monthly")}>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-            </select>
-          </label>
-        </div>
-        <BulkTestActions
-          selectedCount={selectedTestIds.length}
-          visibleTests={visibleActiveTests}
-          mode="active"
-          loading={loading}
-          onSelectVisible={selectVisibleTests}
-          onClear={clearSelectedTests}
-          onArchive={() => bulkArchiveTests(true)}
-          onRestore={() => bulkArchiveTests(false)}
-          onDelete={bulkDeleteTests}
-        />
-        <div className="qa-list">
-          {visibleActiveTests.map((test) => (
-            <TestCard
-              key={test.id}
-              test={test}
-              runStatus={runFeedback[test.id]}
-              isRunning={runningTestId === test.id}
-              expanded={expandedTestIdSet.has(test.id)}
-              selected={selectedTestIds.includes(test.id)}
-              onSelect={selectTest}
-              onToggleExpanded={toggleTestExpanded}
-              onArchive={archiveTest}
-              onSchedule={scheduleTest}
-              onRun={runTest}
-            />
-          ))}
-          {!filteredActiveTests.length ? <div className="empty-state qa-empty-state">No active tests match this search.</div> : null}
-        </div>
-        <ListLimitControls
-          total={filteredActiveTests.length}
-          visible={testListLimit}
-          onShowMore={() => setTestListLimit((current) => current + TEST_LIST_PAGE_SIZE)}
-          onShowAll={() => setTestListLimit(filteredActiveTests.length)}
-          onReset={() => setTestListLimit(TEST_LIST_PAGE_SIZE)}
-        />
       </section>
     );
   }
@@ -862,6 +907,7 @@ export function QaWorkspace({ activePage, defaultUrl }: QaWorkspaceProps) {
               isRunning={runningTestId === test.id}
               expanded={expandedTestIdSet.has(test.id)}
               selected={selectedTestIds.includes(test.id)}
+              actionsMode="manage"
               onSelect={selectTest}
               onToggleExpanded={toggleTestExpanded}
               onArchive={archiveTest}
@@ -885,9 +931,9 @@ export function QaWorkspace({ activePage, defaultUrl }: QaWorkspaceProps) {
     return (
       <section className="panel qa-panel">
         <div className="panel-header">
-          <p className="eyebrow">Execution</p>
-          <h2>Test running</h2>
-          <p>Run generated tests as focused browser scans and inspect recent run records.</p>
+          <p className="eyebrow">Step 3 - Test the tests</p>
+          <h2>Run generated tests against the site</h2>
+          <p>Use this step after manual cases and automation candidates are created. It validates generated checks and records run evidence.</p>
         </div>
         {message ? <p className="info-banner">{message}</p> : null}
         <RunFilters status={runStatusFilter} onStatusChange={setRunStatusFilter} />
@@ -911,6 +957,7 @@ export function QaWorkspace({ activePage, defaultUrl }: QaWorkspaceProps) {
               isRunning={runningTestId === test.id}
               expanded={expandedTestIdSet.has(test.id)}
               selected={selectedTestIds.includes(test.id)}
+              actionsMode="run"
               onSelect={selectTest}
               onToggleExpanded={toggleTestExpanded}
               onArchive={archiveTest}
@@ -941,9 +988,9 @@ export function QaWorkspace({ activePage, defaultUrl }: QaWorkspaceProps) {
     return (
       <section className="panel qa-panel">
         <div className="panel-header">
-          <p className="eyebrow">Reporting</p>
-          <h2>QA reporting</h2>
-          <p>Track generated coverage, archive volume, and recent execution state.</p>
+          <p className="eyebrow">Step 4 - Results</p>
+          <h2>Review test evidence and exports</h2>
+          <p>Track generated coverage, execution state, schedules, and downloadable QA reports.</p>
         </div>
         <div className="qa-filter-row">
           <WorkspaceField projectName={projectName} projects={projects} onProjectNameChange={setProjectName} />
