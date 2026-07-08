@@ -74,7 +74,8 @@ const EMPTY_REQUEST: QaFrameworkRequest = {
   riskAreas: [],
   supportedBrowsers: ["chromium", "firefox", "webkit"],
   includeCi: true,
-  portfolioMode: true
+  portfolioMode: true,
+  confidentialTestAccounts: ""
 };
 
 function splitLines(value: string): string[] {
@@ -183,6 +184,7 @@ export function FrameworkBuilder({ defaultUrl }: { defaultUrl: string; onNavigat
   const [flowsText, setFlowsText] = useState("");
   const [rulesText, setRulesText] = useState("");
   const [risksText, setRisksText] = useState("");
+  const [confidentialAccountsText, setConfidentialAccountsText] = useState("");
   const [result, setResult] = useState<FrameworkResult | null>(null);
   const [runResult, setRunResult] = useState<FrameworkRunResult | null>(null);
   const [selectedManualTestId, setSelectedManualTestId] = useState("");
@@ -213,8 +215,9 @@ export function FrameworkBuilder({ defaultUrl }: { defaultUrl: string; onNavigat
     if (!rules.length) errors.push("Add at least one business rule.");
     if (risks.length < 2) errors.push("Add at least two risk areas.");
     if (!form.supportedBrowsers.length) errors.push("Select at least one browser.");
+    if (confidentialAccountsText.length > 4000) errors.push("Confidential account notes must stay under 4000 characters.");
     return errors;
-  }, [flows.length, form.applicationName, form.applicationUrl, form.productDescription, form.supportedBrowsers.length, risks.length, roles.length, rules.length]);
+  }, [confidentialAccountsText.length, flows.length, form.applicationName, form.applicationUrl, form.productDescription, form.supportedBrowsers.length, risks.length, roles.length, rules.length]);
 
   const canGenerate = validationErrors.length === 0 && !loading && !running;
   const selectedManualTest = useMemo(
@@ -246,7 +249,8 @@ export function FrameworkBuilder({ defaultUrl }: { defaultUrl: string; onNavigat
       criticalFlows: flows,
       businessRules: rules,
       riskAreas: risks,
-      supportedBrowsers: form.supportedBrowsers
+      supportedBrowsers: form.supportedBrowsers,
+      confidentialTestAccounts: confidentialAccountsText.trim() || undefined
     };
   }
 
@@ -373,6 +377,17 @@ export function FrameworkBuilder({ defaultUrl }: { defaultUrl: string; onNavigat
           <label>
             Risk areas
             <textarea value={risksText} onChange={(event) => setRisksText(event.target.value)} placeholder={"Broken navigation\nMissing content\nForm regression\nCross-browser rendering"} />
+          </label>
+          <label className="qa-field-full">
+            Confidential test accounts
+            <textarea
+              value={confidentialAccountsText}
+              onChange={(event) => setConfidentialAccountsText(event.target.value)}
+              placeholder={"Optional. Use safe non-production accounts only. Example:\nrole=standard user; email=qa-user@example.test; password=...\nrole=admin; email=qa-admin@example.test; password=..."}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <span className="qa-help-text">These values are sent only for this generation/run request. The generated ZIP receives env placeholders, not the real secrets.</span>
           </label>
         </div>
 
