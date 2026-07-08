@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import type { AnalysisIssue, AnalysisJob, AnalysisResult, AnalysisSummary, AnalyzeRequest } from "../lib/types";
+import type { AnalysisSummary } from "../lib/api";
+import type { AnalysisIssue, AnalysisJob, AnalysisResult, AnalyzeRequest } from "../lib/types";
 
 interface StaticAnalysisPageProps {
   analysis: AnalysisResult | null;
