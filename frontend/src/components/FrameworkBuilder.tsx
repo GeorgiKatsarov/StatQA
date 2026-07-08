@@ -100,26 +100,9 @@ export function FrameworkBuilder({ defaultUrl, onNavigate }: { defaultUrl: strin
     }
   }, [defaultUrl]);
 
-  async function loadDemo() {
-    setLoading(true);
-    setMessage("");
-    try {
-      const response = await apiRequest<{ framework: QaFrameworkBuilderResult }>("/qa/framework/demo");
-      setResult(response.framework);
-      setSelectedPath(response.framework.files[0]?.path ?? "");
-      setSelectedManualTestId(response.framework.manualTests[0]?.id ?? "");
-      setArtifactView("strategy");
-      setMessage("Loaded the TaskPilot demo framework package.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to load demo framework.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function generateFramework() {
     setLoading(true);
-    setMessage("");
+    setMessage("Generating framework and tests with AI...");
     const payload: QaFrameworkRequest = {
       ...form,
       mainRoles: splitLines(rolesText),
@@ -139,7 +122,7 @@ export function FrameworkBuilder({ defaultUrl, onNavigate }: { defaultUrl: strin
       setArtifactView("strategy");
       setMessage(
         response.framework.validation.exportReady
-          ? "Framework generated and passed export validation."
+          ? `✓ Framework generated and ready to export with ${response.framework.manualTests.length} manual tests and ${response.framework.suitability.filter((item) => item.recommendation === "automate").length} automated candidates.`
           : "Framework generated with blocking validation issues."
       );
     } catch (error) {
@@ -304,17 +287,14 @@ export function FrameworkBuilder({ defaultUrl, onNavigate }: { defaultUrl: strin
               </label>
             </div>
             <div className="actions-row">
-              <button className="secondary-button" type="button" disabled={loading} onClick={loadDemo}>
-                Load TaskPilot demo
-              </button>
               <button className="primary-button" type="button" disabled={loading} onClick={generateFramework}>
-                {loading ? "Generating automatic tests..." : "Create automatic tests"}
+                {loading ? "Generating framework with AI..." : "Generate Framework"}
               </button>
               <button className="secondary-button" type="button" disabled={!result?.validation.exportReady} onClick={downloadZip}>
-                Download framework + suite
+                Download Framework ZIP
               </button>
               <button className="secondary-button" type="button" disabled={!result} onClick={() => onNavigate("qa-run")}>
-                Continue to test the tests
+                Test the Framework
               </button>
             </div>
           </section>
@@ -378,67 +358,101 @@ export function FrameworkBuilder({ defaultUrl, onNavigate }: { defaultUrl: strin
           {artifactView === "manual" ? (
             <section className="framework-section artifact-panel">
               <div className="subpanel-heading">
-                <h3>Manual test cases</h3>
-                <p>These cases are written for human execution before automation is trusted.</p>
+                <h3>Manual Test Cases</h3>
+                <p>These cases are written for human execution. Review them before automating similar flows.</p>
               </div>
-              <div className="manual-test-workspace">
-                <div className="manual-test-list">
-                  {result.manualTests.map((test) => (
-                    <button
-                      key={test.id}
-                      type="button"
-                      className={selectedManualTest?.id === test.id ? "manual-test-selector active" : "manual-test-selector"}
-                      onClick={() => setSelectedManualTestId(test.id)}
-                    >
-                      <strong>{test.id}</strong>
-                      <span>{test.title}</span>
-                    </button>
-                  ))}
-                </div>
-                {selectedManualTest ? (
-                  <article className="manual-test-detail">
-                    <div className="issue-head">
-                      <span className="category-badge">{selectedManualTest.id}</span>
-                      <span className={`severity severity-${selectedManualTest.priority === "critical" ? "critical" : selectedManualTest.priority === "high" ? "error" : "info"}`}>
-                        {selectedManualTest.priority}
-                      </span>
-                      <span className="category-badge">{selectedManualTest.automationSuitability}</span>
+              <div className="manual-test-grid">
+                {result.manualTests.map((test) => (
+                  <button
+                    key={test.id}
+                    type="button"
+                    className={`manual-test-card ${selectedManualTest?.id === test.id ? "active" : ""}`}
+                    onClick={() => setSelectedManualTestId(test.id)}
+                  >
+                    <div className="test-card-header">
+                      <strong className="test-id">{test.id}</strong>
+                      <span className={`priority priority-${test.priority}`}>{test.priority}</span>
                     </div>
-                    <h3>{selectedManualTest.title}</h3>
-                    <p>{selectedManualTest.objective}</p>
-                    <div className="artifact-two-column">
-                      <div>
-                        <h4>Preconditions</h4>
-                        <ul>{selectedManualTest.preconditions.map((item) => <li key={item}>{item}</li>)}</ul>
-                      </div>
-                      <div>
-                        <h4>Test data</h4>
-                        <ul>{selectedManualTest.testData.map((item) => <li key={item}>{item}</li>)}</ul>
-                      </div>
+                    <h4 className="test-title">{test.title}</h4>
+                    <p className="test-feature">{test.feature}</p>
+                    <div className="test-badges">
+                      <span className={`badge automation-${test.automationSuitability}`}>{test.automationSuitability}</span>
+                      <span className="badge">{test.classification}</span>
                     </div>
-                    <h4>Steps and expected results</h4>
-                    <ol className="manual-step-list">
-                      {selectedManualTest.steps.map((step) => (
-                        <li key={`${selectedManualTest.id}-${step.action}`}>
-                          <strong>{step.action}</strong>
-                          <span>{step.expectedResult}</span>
-                        </li>
-                      ))}
-                    </ol>
-                    <p className="qa-inline-status">{selectedManualTest.automationNotes}</p>
-                  </article>
-                ) : null}
+                  </button>
+                ))}
               </div>
+              {selectedManualTest ? (
+                <article className="manual-test-detail">
+                  <div className="issue-head">
+                    <span className="category-badge">{selectedManualTest.id}</span>
+                    <span className={`severity severity-${selectedManualTest.priority === "critical" ? "critical" : selectedManualTest.priority === "high" ? "error" : "info"}`}>
+                      {selectedManualTest.priority}
+                    </span>
+                    <span className="category-badge">{selectedManualTest.automationSuitability}</span>
+                  </div>
+                  <h3>{selectedManualTest.title}</h3>
+                  <p>{selectedManualTest.objective}</p>
+                  <div className="artifact-two-column">
+                    <div>
+                      <h4>Preconditions</h4>
+                      <ul>{selectedManualTest.preconditions.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </div>
+                    <div>
+                      <h4>Test Data</h4>
+                      <ul>{selectedManualTest.testData.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </div>
+                  </div>
+                  <h4>Steps and Expected Results</h4>
+                  <ol className="manual-step-list">
+                    {selectedManualTest.steps.map((step) => (
+                      <li key={`${selectedManualTest.id}-${step.action}`}>
+                        <strong>{step.action}</strong>
+                        <span>{step.expectedResult}</span>
+                      </li>
+                    ))}
+                  </ol>
+                  <p className="qa-inline-status"><strong>Automation Notes:</strong> {selectedManualTest.automationNotes}</p>
+                </article>
+              ) : null}
             </section>
           ) : null}
 
           {artifactView === "automation" ? (
             <section className="framework-section artifact-panel">
               <div className="subpanel-heading">
-                <h3>Automatic test plan</h3>
-                <p>Not every manual test should become Playwright code. This view explains what will be automated and why.</p>
+                <h3>Automatic Test Code</h3>
+                <p>AI-generated Playwright tests for recommended automation candidates. Review and customize before running.</p>
               </div>
+              <div className="automation-test-view">
+                <div className="automation-summary">
+                  <div className="summary-stat">
+                    <span>Automate</span>
+                    <strong>{result.suitability.filter((item) => item.recommendation === "automate").length} tests</strong>
+                  </div>
+                  <div className="summary-stat">
+                    <span>Automation Score</span>
+                    <strong>{Math.round(result.suitability.filter((item) => item.recommendation === "automate").reduce((sum, item) => sum + item.score, 0) / Math.max(result.suitability.filter((item) => item.recommendation === "automate").length, 1))}%</strong>
+                  </div>
+                  <div className="summary-stat">
+                    <span>Average Maintenance</span>
+                    <strong>{result.suitability[0]?.maintenanceRisk ?? "medium"}</strong>
+                  </div>
+                </div>
+
+                {result.files
+                  .filter((f) => f.path.includes("/tests/") && f.path.endsWith(".spec.ts"))
+                  .map((specFile) => (
+                    <div key={specFile.path} className="spec-file-view">
+                      <h4>{specFile.path}</h4>
+                      <p className="spec-purpose">{specFile.purpose}</p>
+                      <pre className="qa-code-preview"><code>{specFile.content}</code></pre>
+                    </div>
+                  ))}
+              </div>
+
               <div className="qa-list compact-framework-list">
+                <h4>Automation Suitability Analysis</h4>
                 {result.suitability.map((item) => (
                   <div className="test-row suitability-row" key={item.testCaseId}>
                     <strong>{item.testCaseId}: {item.recommendation}</strong>
@@ -446,7 +460,7 @@ export function FrameworkBuilder({ defaultUrl, onNavigate }: { defaultUrl: strin
                     <p>Reasons: {item.reasons.join(", ")}</p>
                     <p>Test data: {item.testDataNeeds.join(", ")}</p>
                     <p>Selector assumptions: {item.selectorAssumptions.join(", ")}</p>
-                    {item.blockers.length ? <p className="qa-inline-status">Blockers: {item.blockers.join(", ")}</p> : null}
+                    {item.blockers.length ? <p className="qa-inline-status">⚠ Blockers: {item.blockers.join(", ")}</p> : null}
                   </div>
                 ))}
               </div>

@@ -75,14 +75,11 @@ qaRouter.get("/ai/status", authMiddleware, (_req, res) => {
   res.json(getQaAiStatus());
 });
 
-qaRouter.get("/framework/demo", authMiddleware, (_req, res) => {
-  res.json({ framework: buildFrameworkPackage({}) });
-});
-
-qaRouter.post("/framework/generate", authMiddleware, (req, res, next) => {
+qaRouter.post("/framework/generate", authMiddleware, async (req, res, next) => {
   try {
     const body = frameworkBuilderSchema.parse(req.body);
-    res.status(201).json({ framework: buildFrameworkPackage(body) });
+    const framework = await buildFrameworkPackage(body);
+    res.status(201).json({ framework });
   } catch (error) {
     next(error);
   }

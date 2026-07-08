@@ -1,3 +1,5 @@
+import { callGroqJson } from "./groq.js";
+
 export type FrameworkLanguage = "typescript" | "json" | "markdown" | "env" | "yaml" | "text";
 
 export interface FrameworkRequest {
@@ -99,11 +101,11 @@ export function normalizeFrameworkRequest(input: Partial<FrameworkRequest>): Fra
   };
 }
 
-export function buildFrameworkPackage(input: Partial<FrameworkRequest>): FrameworkBuilderResult {
+export async function buildFrameworkPackage(input: Partial<FrameworkRequest>): Promise<FrameworkBuilderResult> {
   const project = normalizeFrameworkRequest(input);
-  const manualTests = createManualTests(project);
+  const manualTests = await generateManualTestsWithAI(project);
   const suitability = createSuitability(manualTests);
-  const files = createFrameworkFiles(project, manualTests, suitability);
+  const files = await createFrameworkFilesWithAI(project, manualTests, suitability);
   const validation = validateFrameworkFiles(files);
 
   return {
@@ -305,6 +307,129 @@ function createSuitability(tests: ManualFrameworkTest[]): SuitabilityResult[] {
   });
 }
 
+async function createFrameworkFilesWithAI(
+  project: FrameworkRequest,
+  tests: ManualFrameworkTest[],
+  suitability: SuitabilityResult[]
+): Promise<GeneratedFrameworkFile[]> {
+  const automatedTests = tests.filter((test) => suitability.find((item) => item.testCaseId === test.id)?.recommendation === "automate");
+  
+  // Generate additional specs for automated tests
+  const additionalSpecs = await generateAutomaticTestsWithAI(project, automatedTests);
+
+  const files: GeneratedFrameworkFile[] = [
+    frameworkFile("package.json", "Package scripts and Playwright dependencies.", "json", packageJson(project)),
+    frameworkFile("tsconfig.json", "TypeScript configuration for generated framework.", "json", tsconfigJson()),
+    frameworkFile("playwright.config.ts", "Playwright browsers, reporters, traces, screenshots, and videos.", "typescript", playwrightConfig(project)),
+    frameworkFile(".env.example", "Placeholder environment variables. Never commit real secrets.", "env", envExample(project)),
+    frameworkFile(".gitignore", "Ignore local dependencies, env files, and reports.", "text", gitignore()),
+    frameworkFile("README.md", "Professional setup and usage documentation.", "markdown", readme(project)),
+    frameworkFile("config/testMetadata.ts", "Project-level metadata used in reports and docs.", "typescript", testMetadata(project)),
+    frameworkFile("data/users.ts", "Environment-backed test user definitions.", "typescript", userData(project)),
+    frameworkFile("data/manualTestCases.json", "Structured manual test cases used as traceability source.", "json", JSON.stringify(tests, null, 2)),
+    frameworkFile("docs/manual-test-cases.md", "Human-executable manual test cases.", "markdown", manualTestsDoc(tests)),
+    frameworkFile("docs/test-strategy.md", "Risk-based QA strategy and assumptions.", "markdown", strategyDoc(project)),
+    frameworkFile("docs/automation-decisions.md", "Automation suitability decisions.", "markdown", automationDoc(tests, suitability)),
+    frameworkFile("fixtures/auth.fixture.ts", "Authenticated Playwright fixtures for common roles.", "typescript", authFixture()),
+    frameworkFile("pages/LoginPage.ts", "Login page object.", "typescript", loginPageObject()),
+    frameworkFile("pages/DashboardPage.ts", "Dashboard readiness page object.", "typescript", dashboardPageObject()),
+    frameworkFile("pages/CoreWorkflowPage.ts", "Generic workflow page object with TODO hooks for app-specific selectors.", "typescript", coreWorkflowPageObject()),
+    frameworkFile("utils/env.ts", "Required environment variable helper.", "typescript", envHelper()),
+    frameworkFile("utils/dateUtils.ts", "Date helpers for validation and boundary tests.", "typescript", dateUtils()),
+    frameworkFile("tests/auth/login.spec.ts", "Generated authentication smoke and negative tests.", "typescript", authSpec())
+  ];
+
+  // Add generated specs
+  for (const spec of additionalSpecs) {
+    files.push(spec);
+  }
+
+  if (automatedTests.some((test) => test.id.startsWith("TC-FLOW") || test.id.startsWith("TC-VAL"))) {
+    files.push(frameworkFile("tests/workflows/core-flow.spec.ts", "Generated core workflow regression tests.", "typescript", workflowSpec(project)));
+  }
+
+  if (project.includeCi) {
+    files.push(frameworkFile(".github/workflows/playwright.yml", "Optional GitHub Actions workflow.", "yaml", githubWorkflow()));
+  }
+
+  if (project.portfolioMode) {
+    files.push(frameworkFile("docs/interview-demo-script.md", "Portfolio mode interview walkthrough.", "markdown", interviewScript(project)));
+  }
+
+  return files;
+}
+
+async function generateAutomaticTestsWithAI(project: FrameworkRequest, automatedTests: ManualFrameworkTest[]): Promise<GeneratedFrameworkFile[]> {
+  if (automatedTests.length === 0) {
+    return [];
+  }
+
+  try {
+    const testCasesJson = automatedTests.map((t) => `${t.id}: ${t.title} - ${t.objective}`).join("\n");
+    const prompt = `Generate Playwright test specifications for these manual test cases:
+
+${testCasesJson}
+
+For the application: ${project.applicationName}
+URL: ${project.applicationUrl}
+
+Generate ONE comprehensive .spec.ts file with multiple test cases covering:
+1. Setup with proper fixtures
+2. Login/authentication tests with environment variable usage
+3. Workflow tests with page objects
+4. Assertion patterns using Playwright best practices
+5. Error handling and retries
+
+Requirements:
+- Use \`test.describe\` for grouping
+- Use fixture-based authentication
+- Import page objects (LoginPage, DashboardPage, CoreWorkflowPage)
+- Use proper Playwright selectors (getByRole, getByLabel preferred)
+- Use @tags for test categorization (@smoke, @regression)
+- Include proper error messages
+- Use baseURL from config
+- Handle test data from environment variables
+
+Return JSON with single object (not array):
+{
+  "path": "tests/automated/generated.spec.ts",
+  "purpose": "AI-generated automatic tests for automated test cases",
+  "language": "typescript",
+  "content": "import { test, expect } from ...",
+  "required": true
+}
+
+Only return valid JSON. Focus on quality, not quantity.`;
+
+    const result = await callGroqJson([
+      {
+        role: "system",
+        content: "You are an expert Playwright automation engineer. Generate production-ready test specifications following Playwright best practices."
+      },
+      {
+        role: "user",
+        content: prompt
+      }
+    ]);
+
+    const spec = result as any;
+    if (spec && spec.content && spec.path) {
+      return [
+        frameworkFile(
+          spec.path || "tests/automated/generated.spec.ts",
+          spec.purpose || "AI-generated automatic tests",
+          "typescript",
+          spec.content
+        )
+      ];
+    }
+  } catch (error) {
+    console.warn("AI spec generation failed:", error instanceof Error ? error.message : "Unknown error");
+  }
+
+  return [];
+}
+
 function createFrameworkFiles(
   project: FrameworkRequest,
   tests: ManualFrameworkTest[],
@@ -395,7 +520,122 @@ function normalizeList(value: string[] | undefined, fallback: string[]): string[
   const cleaned = (value ?? []).map((item) => item.trim()).filter(Boolean);
   return cleaned.length ? cleaned : fallback;
 }
+async function generateManualTestsWithAI(project: FrameworkRequest): Promise<ManualFrameworkTest[]> {
+  try {
+    const prompt = `Generate 8-12 comprehensive manual test cases for a web application with these characteristics:
 
+Application: ${project.applicationName}
+Description: ${project.productDescription}
+URL: ${project.applicationUrl}
+User Roles: ${project.mainRoles.join(", ")}
+Critical Flows: ${project.criticalFlows.join(", ")}
+Business Rules: ${project.businessRules.join(", ")}
+Risk Areas: ${project.riskAreas.join(", ")}
+
+Generate test cases following these BEST PRACTICES:
+1. Start with authentication/smoke tests (2-3 tests)
+2. Critical workflows for each main role (3-4 tests)
+3. Business rule validation (2-3 tests)
+4. Negative/boundary cases for high-risk areas (2-3 tests)
+5. Permission/RBAC tests for restricted actions (1-2 tests)
+
+For each test case, evaluate automation suitability:
+- "automate": Deterministic UI with clear selectors, repeatable steps
+- "manual-only": Subjective checks, missing selectors, external dependencies
+- "needs-clarification": Important but requires more info on selectors/routes
+
+Return a JSON array with this structure for EACH test:
+{
+  "id": "TC-CATEGORY-###",
+  "feature": "Feature name",
+  "title": "Short test title",
+  "objective": "What is being verified and why",
+  "preconditions": ["List of required setup states"],
+  "testData": ["List of test data fields needed"],
+  "steps": [
+    {"action": "User action", "expectedResult": "Expected outcome"},
+    {"action": "Another action", "expectedResult": "Another outcome"}
+  ],
+  "finalExpectedResult": "Overall expected state",
+  "priority": "critical|high|medium|low",
+  "severity": "blocker|critical|major|minor",
+  "testType": "Smoke, Regression",
+  "testLevel": "End-to-end",
+  "classification": "positive|negative|boundary",
+  "automationSuitability": "automate|manual-only|needs-clarification",
+  "automationNotes": "Why this suitability rating",
+  "tags": ["relevant", "tags"],
+  "riskArea": "One of: ${project.riskAreas.join(", ")}",
+  "testerNotes": "Important notes for manual execution"
+}
+
+Ensure test IDs follow pattern: TC-AUTH-001, TC-FLOW-001, TC-VAL-001, TC-PERM-001.
+Return ONLY valid JSON array, no markdown or explanation.`;
+
+    const result = await callGroqJson([
+      {
+        role: "system",
+        content:
+          "You are an expert QA automation consultant. Generate manual test cases that balance coverage with maintainability. Return only valid JSON array."
+      },
+      {
+        role: "user",
+        content: prompt
+      }
+    ]);
+
+    const tests = Array.isArray(result) ? result : result.tests || [];
+    const validated = tests
+      .map((test: unknown) => {
+        try {
+          const t = test as Record<string, unknown>;
+          return {
+            id: String(t.id || ""),
+            feature: String(t.feature || ""),
+            title: String(t.title || ""),
+            objective: String(t.objective || ""),
+            preconditions: Array.isArray(t.preconditions) ? t.preconditions.map(String) : [],
+            testData: Array.isArray(t.testData) ? t.testData.map(String) : [],
+            steps: Array.isArray(t.steps)
+              ? t.steps.map((s: unknown) => {
+                  const step = s as Record<string, unknown>;
+                  return { action: String(step.action || ""), expectedResult: String(step.expectedResult || "") };
+                })
+              : [],
+            finalExpectedResult: String(t.finalExpectedResult || ""),
+            priority: (["low", "medium", "high", "critical"] as const).includes(t.priority as any)
+              ? (t.priority as "low" | "medium" | "high" | "critical")
+              : "medium",
+            severity: (["minor", "major", "critical", "blocker"] as const).includes(t.severity as any)
+              ? (t.severity as "minor" | "major" | "critical" | "blocker")
+              : "major",
+            testType: String(t.testType || ""),
+            testLevel: String(t.testLevel || ""),
+            classification: (["positive", "negative", "boundary"] as const).includes(t.classification as any)
+              ? (t.classification as "positive" | "negative" | "boundary")
+              : "positive",
+            automationSuitability: (["automate", "manual-only", "needs-clarification"] as const).includes(
+              t.automationSuitability as any
+            )
+              ? (t.automationSuitability as "automate" | "manual-only" | "needs-clarification")
+              : "manual-only",
+            automationNotes: String(t.automationNotes || ""),
+            tags: Array.isArray(t.tags) ? t.tags.map(String) : [],
+            riskArea: String(t.riskArea || ""),
+            testerNotes: String(t.testerNotes || "")
+          } as ManualFrameworkTest;
+        } catch {
+          return null;
+        }
+      })
+      .filter((t): t is ManualFrameworkTest => t !== null && t.id.startsWith("TC-"));
+
+    return validated.length > 0 ? validated : createManualTests(project);
+  } catch (error) {
+    console.warn("AI test generation failed, using defaults:", error instanceof Error ? error.message : "Unknown error");
+    return createManualTests(project);
+  }
+}
 function packageJson(project: FrameworkRequest): string {
   return JSON.stringify(
     {
