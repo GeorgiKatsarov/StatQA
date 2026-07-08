@@ -23,6 +23,15 @@ function scoreLabel(score: number) {
   return "Risky";
 }
 
+function isValidHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function issueAction(issue: AnalysisIssue) {
   const message = `${issue.message} ${issue.explanation} ${issue.recommendation}`.toLowerCase();
   if (message.includes("button") || message.includes("click")) return "Turn this into a manual interaction check or a Playwright locator assertion.";
@@ -51,6 +60,14 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
   const [testButtons, setTestButtons] = useState(true);
   const [testSearch, setTestSearch] = useState(false);
 
+  const validationErrors = useMemo(() => {
+    const errors: string[] = [];
+    if (!isValidHttpUrl(url.trim())) errors.push("Enter a valid http or https URL before scanning.");
+    if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 10) errors.push("Max pages must be between 1 and 10.");
+    if (!Number.isInteger(maxDepth) || maxDepth < 0 || maxDepth > 3) errors.push("Depth must be between 0 and 3.");
+    return errors;
+  }, [maxDepth, maxPages, url]);
+
   const issues = useMemo(() => analysis?.pageResults.flatMap((page) => page.issues) ?? [], [analysis]);
   const filteredIssues = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -67,9 +84,10 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
   const topActions = useMemo(() => filteredIssues.slice(0, 5), [filteredIssues]);
 
   function runAnalysis() {
+    if (validationErrors.length) return;
     const payload: AnalyzeRequest = {
-      url,
-      testSuites: ["site-health", "content", "accessibility", "navigation"],
+      url: url.trim(),
+      testSuites: ["content", "behavior", "security"],
       maxPages,
       maxDepth,
       behavior: {
@@ -83,7 +101,7 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
         samplePassword: "SafeTestPassword123!",
         sampleUrl: "https://example.test"
       },
-      securityChecks: ["headers", "mixed-content", "forms", "links"]
+      securityChecks: ["https", "hsts", "csp", "clickjacking", "mixed-content", "insecure-forms", "password-http"]
     };
     void onAnalyze(payload);
   }
@@ -91,17 +109,17 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
   return (
     <section className="panel qa-panel static-analysis-page">
       <div className="panel-header page-intro">
-        <p className="eyebrow">Useful static analysis</p>
-        <h2>Site health scan that feeds test design</h2>
+        <p className="eyebrow">Static analysis</p>
+        <h2>Site health scan for QA planning</h2>
         <p>
-          Use this before manual or automation generation when you want a quick risk map: broken pages, weak content signals, risky forms, navigation issues, accessibility gaps, and security-header warnings.
+          This page is useful before creating tests. It scans a small number of public pages and turns findings into QA actions: manual cases, automation assertions, or engineering tickets.
         </p>
       </div>
 
       <section className="subpanel">
         <div className="subpanel-heading">
-          <h3>Run a focused scan</h3>
-          <p>Keep it small and actionable. Static analysis should find risks, not pretend to be full QA.</p>
+          <h3>Focused scan setup</h3>
+          <p>Use a real public URL. Keep the scan small first, review the findings, then increase pages only if the results are useful.</p>
         </div>
         <div className="qa-form-grid">
           <label className="qa-field-wide">
@@ -123,11 +141,16 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
           <label className="suite-toggle"><input type="checkbox" checked={testButtons} onChange={(event) => setTestButtons(event.target.checked)} /> Buttons</label>
           <label className="suite-toggle"><input type="checkbox" checked={testSearch} onChange={(event) => setTestSearch(event.target.checked)} /> Search</label>
         </div>
+        {validationErrors.length ? (
+          <div className="validation-list">
+            {validationErrors.map((error) => <p key={error}>{error}</p>)}
+          </div>
+        ) : null}
         <div className="actions-row">
-          <button className="primary-button" type="button" disabled={loading || !url.trim()} onClick={runAnalysis}>
-            {loading ? "Scanning..." : "Run useful static scan"}
+          <button className="primary-button" type="button" disabled={loading || validationErrors.length > 0} onClick={runAnalysis}>
+            {loading ? "Scanning..." : "Run static scan"}
           </button>
-          <span className="qa-help-text">Use results to create manual tests or decide what the generated framework should cover.</span>
+          <span className="qa-help-text">The result should feed manual cases and framework scope, not replace QA judgment.</span>
         </div>
       </section>
 
@@ -158,8 +181,8 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
 
           <section className="subpanel">
             <div className="subpanel-heading">
-              <h3>What to do next</h3>
-              <p>These are the most useful findings to convert into manual tests, framework assertions, or engineering tickets.</p>
+              <h3>Actionable next steps</h3>
+              <p>Start here. These findings are the best candidates to convert into manual tests, framework assertions, or tickets.</p>
             </div>
             <div className="qa-list compact-framework-list">
               {topActions.map((issue) => (
@@ -167,7 +190,7 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
                   <strong>{issue.message}</strong>
                   <span>{issue.severity} - {issue.category} - {issue.pageUrl}</span>
                   <p>{issue.recommendation}</p>
-                  <p><strong>Suggested QA action:</strong> {issueAction(issue)}</p>
+                  <p><strong>QA action:</strong> {issueAction(issue)}</p>
                 </article>
               ))}
               {!topActions.length ? <div className="empty-state qa-empty-state">No findings match the current filter.</div> : null}
@@ -177,7 +200,7 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
           <section className="subpanel">
             <div className="subpanel-heading">
               <h3>Findings grid</h3>
-              <p>Filter by severity or text, then turn the useful findings into manual tests.</p>
+              <p>Filter findings and decide whether each one becomes a manual test, automation assertion, or engineering ticket.</p>
             </div>
             <div className="qa-filter-row">
               <label>
@@ -220,7 +243,7 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
           <section className="subpanel">
             <div className="subpanel-heading">
               <h3>Page health</h3>
-              <p>Use weak pages as candidates for smoke, navigation, and content-contract tests.</p>
+              <p>Weak pages should become smoke, navigation, and content-contract coverage.</p>
             </div>
             <div className="qa-list compact-framework-list">
               {analysis.pageResults.map((page) => (
@@ -250,7 +273,7 @@ export function StaticAnalysisPage({ analysis, activeAnalysisId, history, loadin
           </details>
         </>
       ) : (
-        <div className="empty-state qa-empty-state">Run a scan to see actionable findings instead of generic static-analysis noise.</div>
+        <div className="empty-state qa-empty-state">Run a scan to see actionable findings.</div>
       )}
     </section>
   );
