@@ -46,34 +46,39 @@ type FrameworkResult = QaFrameworkBuilderResult & {
   };
 };
 
+type FrameworkRunResult = {
+  status: "passed" | "failed";
+  startedAt: string;
+  finishedAt: string;
+  summary: {
+    total: number;
+    passed: number;
+    failed: number;
+  };
+  checks: Array<{
+    title: string;
+    path: string;
+    status: "passed" | "failed";
+    durationMs: number;
+    message: string;
+  }>;
+};
+
 const EMPTY_REQUEST: QaFrameworkRequest = {
   applicationName: "",
   applicationUrl: "",
   productDescription: "",
-  mainRoles: ["Visitor"],
-  criticalFlows: ["Public page loads", "Internal navigation works", "Visible forms are reviewed safely"],
-  businessRules: ["Public pages should respond successfully", "Observed links should remain reachable"],
-  riskAreas: ["Broken navigation", "Missing primary content", "Form validation", "Regression risk"],
+  mainRoles: [],
+  criticalFlows: [],
+  businessRules: [],
+  riskAreas: [],
   supportedBrowsers: ["chromium", "firefox", "webkit"],
   includeCi: true,
   portfolioMode: true
 };
 
-const artifactViews = [
-  { id: "evidence", label: "Site evidence", description: "Real pages observed before AI generation" },
-  { id: "manual", label: "Manual grid", description: "Risk-based source cases" },
-  { id: "automation", label: "Automatic code", description: "Evidence-backed Playwright specs" },
-  { id: "files", label: "Export files", description: "Preview and download ZIP" }
-] as const;
-
-type ArtifactView = (typeof artifactViews)[number]["id"];
-
 function splitLines(value: string): string[] {
   return value.split("\n").map((item) => item.trim()).filter(Boolean);
-}
-
-function joinLines(value: string[]): string {
-  return value.join("\n");
 }
 
 function isValidUrl(value: string): boolean {
@@ -89,15 +94,6 @@ function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "statqa-framework";
 }
 
-function downloadBlob(filename: string, blob: Blob) {
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = objectUrl;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(objectUrl);
-}
-
 function shortUrl(value: string): string {
   try {
     const url = new URL(value);
@@ -105,6 +101,15 @@ function shortUrl(value: string): string {
   } catch {
     return value;
   }
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(objectUrl);
 }
 
 function ManualTestGrid({ tests, selectedId, onSelect }: { tests: QaManualFrameworkTest[]; selectedId: string; onSelect: (id: string) => void }) {
@@ -172,20 +177,20 @@ function ManualTestDetail({ test }: { test: QaManualFrameworkTest | null }) {
   );
 }
 
-export function FrameworkBuilder({ defaultUrl, onNavigate }: { defaultUrl: string; onNavigate: (page: string) => void }) {
+export function FrameworkBuilder({ defaultUrl }: { defaultUrl: string; onNavigate: (page: string) => void }) {
   const [form, setForm] = useState<QaFrameworkRequest>({ ...EMPTY_REQUEST, applicationUrl: defaultUrl || "" });
-  const [rolesText, setRolesText] = useState(joinLines(EMPTY_REQUEST.mainRoles));
-  const [flowsText, setFlowsText] = useState(joinLines(EMPTY_REQUEST.criticalFlows));
-  const [rulesText, setRulesText] = useState(joinLines(EMPTY_REQUEST.businessRules));
-  const [risksText, setRisksText] = useState(joinLines(EMPTY_REQUEST.riskAreas));
+  const [rolesText, setRolesText] = useState("");
+  const [flowsText, setFlowsText] = useState("");
+  const [rulesText, setRulesText] = useState("");
+  const [risksText, setRisksText] = useState("");
   const [result, setResult] = useState<FrameworkResult | null>(null);
-  const [artifactView, setArtifactView] = useState<ArtifactView>("evidence");
+  const [runResult, setRunResult] = useState<FrameworkRunResult | null>(null);
   const [selectedManualTestId, setSelectedManualTestId] = useState("");
-  const [selectedSpecPath, setSelectedSpecPath] = useState("");
   const [selectedFilePath, setSelectedFilePath] = useState("");
-  const [fileSearch, setFileSearch] = useState("");
+  const [fileSearch, setFileSearch] = useState("tests/generated");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
     if (defaultUrl && !form.applicationUrl) {
@@ -193,18 +198,32 @@ export function FrameworkBuilder({ defaultUrl, onNavigate }: { defaultUrl: strin
     }
   }, [defaultUrl, form.applicationUrl]);
 
-  const canGenerate = isValidUrl(form.applicationUrl.trim()) && !loading;
+  const roles = useMemo(() => splitLines(rolesText), [rolesText]);
+  const flows = useMemo(() => splitLines(flowsText), [flowsText]);
+  const rules = useMemo(() => splitLines(rulesText), [rulesText]);
+  const risks = useMemo(() => splitLines(risksText), [risksText]);
+
+  const validationErrors = useMemo(() => {
+    const errors: string[] = [];
+    if (!isValidUrl(form.applicationUrl.trim())) errors.push("Enter a valid public application URL.");
+    if (form.applicationName.trim().length < 3) errors.push("Application name must be at least 3 characters.");
+    if (form.productDescription.trim().length < 40) errors.push("Product context must explain what the app does and what QA should protect.");
+    if (!roles.length) errors.push("Add at least one user role/persona.");
+    if (flows.length < 2) errors.push("Add at least two critical flows.");
+    if (!rules.length) errors.push("Add at least one business rule.");
+    if (risks.length < 2) errors.push("Add at least two risk areas.");
+    if (!form.supportedBrowsers.length) errors.push("Select at least one browser.");
+    return errors;
+  }, [flows.length, form.applicationName, form.applicationUrl, form.productDescription, form.supportedBrowsers.length, risks.length, roles.length, rules.length]);
+
+  const canGenerate = validationErrors.length === 0 && !loading && !running;
   const selectedManualTest = useMemo(
     () => result?.manualTests.find((test) => test.id === selectedManualTestId) ?? result?.manualTests[0] ?? null,
     [result, selectedManualTestId]
   );
   const specFiles = useMemo(
-    () => result?.files.filter((file) => file.path.startsWith("tests/") && file.path.endsWith(".spec.ts")) ?? [],
+    () => result?.files.filter((file) => file.path.startsWith("tests/generated") && file.path.endsWith(".spec.ts")) ?? [],
     [result]
-  );
-  const selectedSpec = useMemo(
-    () => specFiles.find((file) => file.path === selectedSpecPath) ?? specFiles[0] ?? null,
-    [specFiles, selectedSpecPath]
   );
   const filteredFiles = useMemo(() => {
     const normalized = fileSearch.trim().toLowerCase();
@@ -217,49 +236,77 @@ export function FrameworkBuilder({ defaultUrl, onNavigate }: { defaultUrl: strin
     [filteredFiles, selectedFilePath]
   );
 
+  function buildPayload(): QaFrameworkRequest {
+    return {
+      ...form,
+      applicationName: form.applicationName.trim(),
+      applicationUrl: form.applicationUrl.trim(),
+      productDescription: form.productDescription.trim(),
+      mainRoles: roles,
+      criticalFlows: flows,
+      businessRules: rules,
+      riskAreas: risks,
+      supportedBrowsers: form.supportedBrowsers
+    };
+  }
+
   async function generateFramework() {
     if (!canGenerate) {
-      setMessage("Enter a real target URL first. StatQA will analyze that site before generating runnable tests.");
+      setMessage("Complete the required product context before generation. A serious framework needs serious input.");
       return;
     }
 
     setLoading(true);
-    setMessage("Analyzing the live site with Playwright, asking AI for manual tests and automation blueprints, then compiling runnable specs...");
-
-    const payload: QaFrameworkRequest = {
-      ...form,
-      applicationName: form.applicationName.trim() || new URL(form.applicationUrl).hostname.replace(/^www\./, ""),
-      productDescription:
-        form.productDescription.trim() ||
-        "Public website QA coverage generated from observed pages, visible content, links, forms, and safe browser interactions.",
-      mainRoles: splitLines(rolesText),
-      criticalFlows: splitLines(flowsText),
-      businessRules: splitLines(rulesText),
-      riskAreas: splitLines(risksText),
-      applicationUrl: form.applicationUrl.trim()
-    };
+    setRunResult(null);
+    setMessage("Building the full framework. This can be slow: StatQA analyzes the live site, asks AI for QA design, and compiles POM-based Playwright tests...");
 
     try {
       const response = await apiRequest<{ framework: FrameworkResult }>("/qa/framework/generate", {
         method: "POST",
-        body: JSON.stringify(payload)
+        body: JSON.stringify(buildPayload())
       });
 
       setResult(response.framework);
       setSelectedManualTestId(response.framework.manualTests[0]?.id ?? "");
-      const firstSpec = response.framework.files.find((file) => file.path.startsWith("tests/") && file.path.endsWith(".spec.ts"));
-      setSelectedSpecPath(firstSpec?.path ?? "");
-      setSelectedFilePath(response.framework.files[0]?.path ?? "");
-      setArtifactView("evidence");
+      const firstSpec = response.framework.files.find((file) => file.path.startsWith("tests/generated") && file.path.endsWith(".spec.ts"));
+      setSelectedFilePath(firstSpec?.path ?? response.framework.files[0]?.path ?? "");
+      setFileSearch("tests/generated");
       setMessage(
         response.framework.validation.exportReady
-          ? `Framework ready: analyzed ${response.framework.siteEvidence?.summary.pagesAnalyzed ?? 0} page(s), generated ${response.framework.manualTests.length} manual cases, and compiled ${response.framework.quality?.runnableSpecCount ?? 0} runnable spec file(s).`
-          : "Framework generated but export is blocked until evidence or validation problems are fixed."
+          ? `Framework ready: ${response.framework.files.length} files, ${response.framework.manualTests.length} manual cases, ${response.framework.files.filter((file) => file.path.endsWith(".spec.ts")).length} spec files.`
+          : "Framework generated but export is blocked until validation problems are fixed."
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to generate the evidence-backed framework.");
+      setMessage(error instanceof Error ? error.message : "Unable to generate the framework.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runGeneratedFramework() {
+    if (!canGenerate) {
+      setMessage("Complete the required product context before running framework checks.");
+      return;
+    }
+
+    setRunning(true);
+    setMessage("Running generated browser checks from StatQA. This may take a while because Playwright is opening the real site...");
+
+    try {
+      const response = await apiRequest<{ framework: FrameworkResult; run: FrameworkRunResult }>("/qa/framework/run", {
+        method: "POST",
+        body: JSON.stringify(buildPayload())
+      });
+      setResult(response.framework);
+      setRunResult(response.run);
+      setSelectedManualTestId(response.framework.manualTests[0]?.id ?? "");
+      const firstSpec = response.framework.files.find((file) => file.path.startsWith("tests/generated") && file.path.endsWith(".spec.ts"));
+      setSelectedFilePath(firstSpec?.path ?? response.framework.files[0]?.path ?? "");
+      setMessage(`Framework run ${response.run.status}: ${response.run.summary.passed}/${response.run.summary.total} checks passed.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to run generated framework checks.");
+    } finally {
+      setRunning(false);
     }
   }
 
@@ -275,149 +322,127 @@ export function FrameworkBuilder({ defaultUrl, onNavigate }: { defaultUrl: strin
     downloadBlob(`${slug(result.project.applicationName)}-playwright-framework.zip`, blob);
   }
 
-  async function copySelectedSpec() {
-    if (!selectedSpec) return;
-    await navigator.clipboard.writeText(selectedSpec.content);
-    setMessage(`Copied ${selectedSpec.path}.`);
-  }
-
   async function copySelectedFile() {
     if (!selectedFile) return;
     await navigator.clipboard.writeText(selectedFile.content);
     setMessage(`Copied ${selectedFile.path}.`);
   }
 
-  function downloadSelectedFile() {
-    if (!selectedFile) return;
-    const filename = selectedFile.path.split("/").at(-1) || "generated-file.txt";
-    downloadBlob(filename, new Blob([selectedFile.content], { type: "text/plain" }));
-  }
-
   return (
     <section className="panel qa-panel framework-builder">
       <div className="panel-header page-intro">
-        <p className="eyebrow">AI evidence-backed framework builder</p>
-        <h2>Generate a Playwright suite from the real site, not a demo template</h2>
+        <p className="eyebrow">Full E2E framework builder</p>
+        <h2>Generate one serious Playwright TypeScript framework</h2>
         <p>
-          StatQA now analyzes the submitted URL first, generates manual tests from observed evidence, asks AI for automation blueprints, and compiles those blueprints into readable Playwright code.
+          Fill the product context, let StatQA analyze the real site slowly, generate a POM-based framework, run the generated browser checks here, then download the ZIP.
         </p>
       </div>
 
       {message ? <p className="info-banner">{message}</p> : null}
 
-      <div className="workspace-flow-grid">
-        <div className="workflow-sidebar">
-          <div className="workflow-note">
-            <span>1</span>
-            <strong>Analyze the real site</strong>
-            <p>Playwright collects pages, headings, text, links, buttons, forms, and safe public evidence.</p>
-          </div>
-          <div className="workflow-note">
-            <span>2</span>
-            <strong>Generate with AI</strong>
-            <p>AI creates manual tests and selects automation blueprints only from observed evidence.</p>
-          </div>
-          <div className="workflow-note">
-            <span>3</span>
-            <strong>Compile runnable code</strong>
-            <p>The backend compiles AI blueprints into stable Playwright TypeScript instead of trusting raw invented code.</p>
-          </div>
+      <section className="subpanel">
+        <div className="subpanel-heading">
+          <h3>Required product context</h3>
+          <p>Generation is disabled until the URL and QA context are specific enough to produce a real automation framework.</p>
+        </div>
+        <div className="qa-form-grid">
+          <label className="qa-field-wide">
+            Application URL
+            <input value={form.applicationUrl} onChange={(event) => setForm({ ...form, applicationUrl: event.target.value })} placeholder="https://your-real-app.com" />
+          </label>
+          <label className="qa-field-wide">
+            Application name
+            <input value={form.applicationName} onChange={(event) => setForm({ ...form, applicationName: event.target.value })} placeholder="QACloud Dev" />
+          </label>
+          <label className="qa-field-full">
+            Product context
+            <textarea value={form.productDescription} onChange={(event) => setForm({ ...form, productDescription: event.target.value })} placeholder="Explain what the product does, main user value, risky areas, and what QA must protect." />
+          </label>
+          <label>
+            User roles / personas
+            <textarea value={rolesText} onChange={(event) => setRolesText(event.target.value)} placeholder={"Visitor\nRegistered user\nAdmin"} />
+          </label>
+          <label>
+            Critical flows
+            <textarea value={flowsText} onChange={(event) => setFlowsText(event.target.value)} placeholder={"Open landing page and navigate core pages\nUse public forms safely\nVerify important content remains visible"} />
+          </label>
+          <label>
+            Business rules
+            <textarea value={rulesText} onChange={(event) => setRulesText(event.target.value)} placeholder={"Public pages must load without errors\nForms must not be destructive without confirmation"} />
+          </label>
+          <label>
+            Risk areas
+            <textarea value={risksText} onChange={(event) => setRisksText(event.target.value)} placeholder={"Broken navigation\nMissing content\nForm regression\nCross-browser rendering"} />
+          </label>
         </div>
 
-        <div className="workspace-main">
-          <section className="subpanel">
-            <div className="subpanel-heading">
-              <h3>Target application</h3>
-              <p>A real URL is required. The old fake demo framework path is intentionally removed.</p>
-            </div>
-            <div className="qa-form-grid">
-              <label className="qa-field-wide">
-                Application URL
-                <input
-                  value={form.applicationUrl}
-                  onChange={(event) => setForm({ ...form, applicationUrl: event.target.value })}
-                  placeholder="https://your-real-app.com"
-                />
-              </label>
-              <label className="qa-field-wide">
-                Application name
-                <input
-                  value={form.applicationName}
-                  onChange={(event) => setForm({ ...form, applicationName: event.target.value })}
-                  placeholder="Auto-filled from hostname if empty"
-                />
-              </label>
-              <label className="qa-field-full">
-                Product context
-                <textarea
-                  value={form.productDescription}
-                  onChange={(event) => setForm({ ...form, productDescription: event.target.value })}
-                  placeholder="What does the site do? What should QA care about?"
-                />
-              </label>
-              <label>
-                Roles
-                <textarea value={rolesText} onChange={(event) => setRolesText(event.target.value)} />
-              </label>
-              <label>
-                Critical flows
-                <textarea value={flowsText} onChange={(event) => setFlowsText(event.target.value)} />
-              </label>
-              <label>
-                Business rules
-                <textarea value={rulesText} onChange={(event) => setRulesText(event.target.value)} />
-              </label>
-              <label>
-                Risk areas
-                <textarea value={risksText} onChange={(event) => setRisksText(event.target.value)} />
-              </label>
-            </div>
-          </section>
+        {validationErrors.length ? (
+          <div className="qa-list compact-framework-list">
+            {validationErrors.map((error) => <p className="qa-inline-status" key={error}>{error}</p>)}
+          </div>
+        ) : <p className="qa-source-banner qa-source-ready">Context looks strong enough for framework generation.</p>}
+      </section>
 
-          <section className="subpanel">
-            <div className="subpanel-heading">
-              <h3>Framework options</h3>
-              <p>Runnable tests are evidence-backed. Risky private flows stay manual until the user provides safe configuration.</p>
-            </div>
-            <div className="qa-filter-row framework-options-row">
-              {(["chromium", "firefox", "webkit"] as const).map((browser) => (
-                <label key={browser} className="suite-toggle">
-                  <input
-                    type="checkbox"
-                    checked={form.supportedBrowsers.includes(browser)}
-                    onChange={(event) => {
-                      const selected = event.target.checked
-                        ? [...form.supportedBrowsers, browser]
-                        : form.supportedBrowsers.filter((item) => item !== browser);
-                      setForm({ ...form, supportedBrowsers: selected.length ? selected : [browser] });
-                    }}
-                  />
-                  {browser}
-                </label>
-              ))}
-              <label className="suite-toggle">
-                <input type="checkbox" checked={form.includeCi} onChange={(event) => setForm({ ...form, includeCi: event.target.checked })} />
-                GitHub Actions
-              </label>
-              <label className="suite-toggle">
-                <input type="checkbox" checked={form.portfolioMode} onChange={(event) => setForm({ ...form, portfolioMode: event.target.checked })} />
-                Portfolio docs
-              </label>
-            </div>
-            <div className="actions-row">
-              <button className="primary-button" type="button" disabled={!canGenerate} onClick={generateFramework}>
-                {loading ? "Analyzing site and generating..." : "Analyze Site and Generate Framework"}
-              </button>
-              <button className="secondary-button" type="button" disabled={!result?.validation.exportReady} onClick={downloadZip}>
-                Download Framework ZIP
-              </button>
-              <button className="secondary-button" type="button" disabled={!result} onClick={() => onNavigate("qa-run")}>
-                Open QA runs
-              </button>
-            </div>
-          </section>
+      <section className="subpanel">
+        <div className="subpanel-heading">
+          <h3>Framework options</h3>
+          <p>The output follows strict POM guidelines, uses generated evidence fixtures, and separates specs from page objects.</p>
         </div>
-      </div>
+        <div className="qa-filter-row framework-options-row">
+          {(["chromium", "firefox", "webkit"] as const).map((browser) => (
+            <label key={browser} className="suite-toggle">
+              <input
+                type="checkbox"
+                checked={form.supportedBrowsers.includes(browser)}
+                onChange={(event) => {
+                  const selected = event.target.checked
+                    ? [...form.supportedBrowsers, browser]
+                    : form.supportedBrowsers.filter((item) => item !== browser);
+                  setForm({ ...form, supportedBrowsers: selected.length ? selected : [browser] });
+                }}
+              />
+              {browser}
+            </label>
+          ))}
+          <label className="suite-toggle">
+            <input type="checkbox" checked={form.includeCi} onChange={(event) => setForm({ ...form, includeCi: event.target.checked })} />
+            GitHub Actions
+          </label>
+          <label className="suite-toggle">
+            <input type="checkbox" checked={form.portfolioMode} onChange={(event) => setForm({ ...form, portfolioMode: event.target.checked })} />
+            Portfolio docs
+          </label>
+        </div>
+        <div className="actions-row">
+          <button className="primary-button" type="button" disabled={!canGenerate} onClick={generateFramework}>
+            {loading ? "Generating full framework..." : "Generate full E2E framework"}
+          </button>
+          <button className="secondary-button" type="button" disabled={!canGenerate || running} onClick={runGeneratedFramework}>
+            {running ? "Running tests..." : "Run generated tests from site"}
+          </button>
+          <button className="secondary-button" type="button" disabled={!result?.validation.exportReady} onClick={downloadZip}>
+            Download Framework ZIP
+          </button>
+        </div>
+      </section>
+
+      {runResult ? (
+        <section className="subpanel">
+          <div className="subpanel-heading">
+            <h3>Run result: {runResult.status}</h3>
+            <p>{runResult.summary.passed}/{runResult.summary.total} checks passed. These checks open the real public pages from the generated framework evidence.</p>
+          </div>
+          <div className="qa-list compact-framework-list">
+            {runResult.checks.map((check) => (
+              <article className="test-row" key={`${check.title}-${check.path}`}>
+                <strong>{check.title}</strong>
+                <span>{check.status} - {check.durationMs} ms - {shortUrl(check.path)}</span>
+                <p>{check.message}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {result ? (
         <>
@@ -425,168 +450,76 @@ export function FrameworkBuilder({ defaultUrl, onNavigate }: { defaultUrl: strin
             <div><span>Readiness</span><strong>{result.quality?.readinessScore ?? 0}%</strong></div>
             <div><span>Pages analyzed</span><strong>{result.siteEvidence?.summary.pagesAnalyzed ?? 0}</strong></div>
             <div><span>Manual cases</span><strong>{result.manualTests.length}</strong></div>
-            <div><span>Runnable specs</span><strong>{result.quality?.runnableSpecCount ?? specFiles.length}</strong></div>
-            <div><span>Evidence assertions</span><strong>{result.quality?.evidenceBackedAssertions ?? 0}</strong></div>
+            <div><span>Spec files</span><strong>{specFiles.length}</strong></div>
+            <div><span>Framework files</span><strong>{result.files.length}</strong></div>
             <div><span>Export</span><strong>{result.validation.exportReady ? "Ready" : "Blocked"}</strong></div>
           </div>
 
-          <nav className="artifact-tabs" aria-label="Generated artifact workflow">
-            {artifactViews.map((view) => (
-              <button
-                key={view.id}
-                type="button"
-                className={artifactView === view.id ? "artifact-tab active" : "artifact-tab"}
-                onClick={() => setArtifactView(view.id)}
-              >
-                <strong>{view.label}</strong>
-                <span>{view.description}</span>
-              </button>
-            ))}
-          </nav>
+          <section className="framework-section artifact-panel">
+            <div className="subpanel-heading">
+              <h3>Generated manual tests</h3>
+              <p>Source QA cases produced before automation. Automation is built from this evidence and the observed site.</p>
+            </div>
+            <ManualTestGrid tests={result.manualTests} selectedId={selectedManualTest?.id ?? ""} onSelect={setSelectedManualTestId} />
+            <ManualTestDetail test={selectedManualTest} />
+          </section>
 
-          {artifactView === "evidence" ? (
-            <section className="framework-section artifact-panel">
-              <div className="subpanel-heading">
-                <h3>Real site evidence</h3>
-                <p>This is what StatQA observed before AI generated the tests. Automatic specs should only come from this evidence.</p>
-              </div>
-              <div className="test-summary-grid">
-                <div><span>Status</span><strong>{result.siteEvidence?.status ?? "unknown"}</strong></div>
-                <div><span>Forms</span><strong>{result.siteEvidence?.summary.formsFound ?? 0}</strong></div>
-                <div><span>Inputs</span><strong>{result.siteEvidence?.summary.inputsFound ?? 0}</strong></div>
-                <div><span>Buttons</span><strong>{result.siteEvidence?.summary.buttonsFound ?? 0}</strong></div>
-                <div><span>Internal links</span><strong>{result.siteEvidence?.summary.internalLinksFound ?? 0}</strong></div>
-              </div>
-              {result.siteEvidence?.error ? <p className="error-banner">{result.siteEvidence.error}</p> : null}
-              <div className="qa-list compact-framework-list">
-                {result.siteEvidence?.pages.map((page) => (
-                  <article className="test-row" key={page.url}>
-                    <strong>{page.title || page.path}</strong>
-                    <span>{page.status ?? "unknown"} - {shortUrl(page.url)}</span>
-                    <p>Headings: {page.headings.map((item) => item.text).slice(0, 4).join(", ") || "none observed"}</p>
-                    <p>Buttons: {page.buttons.map((item) => item.text).slice(0, 4).join(", ") || "none observed"}</p>
-                    <p>Internal links: {page.links.filter((link) => link.internal).slice(0, 5).map((link) => link.text || shortUrl(link.href)).join(", ") || "none observed"}</p>
-                  </article>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {artifactView === "manual" ? (
-            <section className="framework-section artifact-panel">
-              <div className="subpanel-heading">
-                <h3>Manual test grid</h3>
-                <p>These are the human-readable source tests. Each one has priority, severity, evidence notes, and automation suitability.</p>
-              </div>
-              <ManualTestGrid tests={result.manualTests} selectedId={selectedManualTest?.id ?? ""} onSelect={setSelectedManualTestId} />
-              <ManualTestDetail test={selectedManualTest} />
-            </section>
-          ) : null}
-
-          {artifactView === "automation" ? (
-            <section className="framework-section artifact-panel">
-              <div className="subpanel-heading">
-                <h3>Automatic tests with code</h3>
-                <p>AI chooses the evidence-backed automation blueprints; StatQA compiles them into runnable Playwright TypeScript.</p>
-              </div>
-              <div className="automation-summary">
-                <div className="summary-stat"><span>Automate</span><strong>{result.suitability.filter((item) => item.recommendation === "automate").length} cases</strong></div>
-                <div className="summary-stat"><span>Runnable spec files</span><strong>{specFiles.length}</strong></div>
-                <div className="summary-stat"><span>Average score</span><strong>{Math.round(result.suitability.reduce((sum, item) => sum + item.score, 0) / Math.max(result.suitability.length, 1))}%</strong></div>
-              </div>
-
-              <div className="framework-section framework-files">
-                <div className="framework-file-list">
-                  <h4>Spec files</h4>
-                  {specFiles.map((file) => (
-                    <button
-                      key={file.path}
-                      type="button"
-                      className={selectedSpec?.path === file.path ? "sidebar-item active" : "sidebar-item"}
-                      onClick={() => setSelectedSpecPath(file.path)}
-                    >
-                      {file.path}
-                    </button>
-                  ))}
-                </div>
-                <div className="framework-file-preview">
-                  {selectedSpec ? (
-                    <>
-                      <div className="panel-header">
-                        <h3>{selectedSpec.path}</h3>
-                        <p>{selectedSpec.purpose}</p>
-                      </div>
-                      <div className="actions-row">
-                        <button className="secondary-button" type="button" onClick={copySelectedSpec}>Copy code</button>
-                      </div>
-                      <pre className="qa-code-preview"><code>{selectedSpec.content}</code></pre>
-                    </>
-                  ) : <p className="qa-inline-status">No runnable specs were generated. Check validation and site evidence.</p>}
-                </div>
-              </div>
-
-              <div className="qa-list compact-framework-list">
-                <h4>Automation decisions</h4>
-                {result.suitability.map((item) => (
-                  <div className="test-row suitability-row" key={item.testCaseId}>
-                    <strong>{item.testCaseId}: {item.recommendation}</strong>
-                    <span>Score {item.score} - {item.recommendedAutomationLayer} - maintenance {item.maintenanceRisk}</span>
-                    <p>Reasons: {item.reasons.join(", ")}</p>
-                    {item.blockers.length ? <p className="qa-inline-status">Blockers: {item.blockers.join(", ")}</p> : null}
+          <section className="framework-section framework-files artifact-panel">
+            <div className="framework-file-list">
+              <h3>Generated framework files</h3>
+              <label className="framework-file-search">
+                Search files
+                <input value={fileSearch} onChange={(event) => setFileSearch(event.target.value)} placeholder="tests/generated, pages, README, guidelines..." />
+              </label>
+              {filteredFiles.map((file) => (
+                <button key={file.path} type="button" className={selectedFile?.path === file.path ? "sidebar-item active" : "sidebar-item"} onClick={() => setSelectedFilePath(file.path)}>
+                  {file.path}
+                </button>
+              ))}
+            </div>
+            <div className="framework-file-preview">
+              {selectedFile ? (
+                <>
+                  <div className="panel-header">
+                    <h3>{selectedFile.path}</h3>
+                    <p>{selectedFile.purpose}</p>
                   </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
+                  <div className="actions-row">
+                    <button className="secondary-button" type="button" onClick={copySelectedFile}>Copy file</button>
+                  </div>
+                  <pre className="qa-json-preview">{selectedFile.content}</pre>
+                </>
+              ) : null}
+            </div>
+          </section>
 
-          {artifactView === "files" ? (
-            <section className="framework-section framework-files artifact-panel">
-              <div className="framework-file-list">
-                <h3>Generated files</h3>
-                <label className="framework-file-search">
-                  Search files
-                  <input value={fileSearch} onChange={(event) => setFileSearch(event.target.value)} placeholder="README, spec, evidence, config..." />
-                </label>
-                {filteredFiles.map((file) => (
-                  <button
-                    key={file.path}
-                    type="button"
-                    className={selectedFile?.path === file.path ? "sidebar-item active" : "sidebar-item"}
-                    onClick={() => setSelectedFilePath(file.path)}
-                  >
-                    {file.path}
-                  </button>
-                ))}
-              </div>
-              <div className="framework-file-preview">
-                {selectedFile ? (
-                  <>
-                    <div className="panel-header">
-                      <h3>{selectedFile.path}</h3>
-                      <p>{selectedFile.purpose}</p>
-                    </div>
-                    <div className="actions-row">
-                      <button className="secondary-button" type="button" onClick={copySelectedFile}>Copy file</button>
-                      <button className="secondary-button" type="button" onClick={downloadSelectedFile}>Download file</button>
-                    </div>
-                    <pre className="qa-json-preview">{selectedFile.content}</pre>
-                  </>
-                ) : null}
-              </div>
-            </section>
-          ) : null}
-
-          {result.validation.blockingErrors.length || result.validation.warnings.length ? (
-            <section className="settings-section">
-              <h3>Validation</h3>
-              {result.validation.blockingErrors.map((item) => <p className="error-banner" key={item}>{item}</p>)}
-              {result.validation.warnings.map((item) => <p className="qa-inline-status" key={item}>{item}</p>)}
-            </section>
-          ) : null}
+          <details className="settings-section">
+            <summary>Advanced site evidence and validation</summary>
+            <div className="test-summary-grid">
+              <div><span>Status</span><strong>{result.siteEvidence?.status ?? "unknown"}</strong></div>
+              <div><span>Forms</span><strong>{result.siteEvidence?.summary.formsFound ?? 0}</strong></div>
+              <div><span>Inputs</span><strong>{result.siteEvidence?.summary.inputsFound ?? 0}</strong></div>
+              <div><span>Buttons</span><strong>{result.siteEvidence?.summary.buttonsFound ?? 0}</strong></div>
+              <div><span>Internal links</span><strong>{result.siteEvidence?.summary.internalLinksFound ?? 0}</strong></div>
+            </div>
+            {result.siteEvidence?.error ? <p className="error-banner">{result.siteEvidence.error}</p> : null}
+            {result.validation.blockingErrors.map((item) => <p className="error-banner" key={item}>{item}</p>)}
+            {result.validation.warnings.map((item) => <p className="qa-inline-status" key={item}>{item}</p>)}
+            <div className="qa-list compact-framework-list">
+              {result.siteEvidence?.pages.map((page) => (
+                <article className="test-row" key={page.url}>
+                  <strong>{page.title || page.path}</strong>
+                  <span>{page.status ?? "unknown"} - {shortUrl(page.url)}</span>
+                  <p>Headings: {page.headings.map((item) => item.text).slice(0, 4).join(", ") || "none observed"}</p>
+                  <p>Buttons: {page.buttons.map((item) => item.text).slice(0, 4).join(", ") || "none observed"}</p>
+                </article>
+              ))}
+            </div>
+          </details>
         </>
       ) : (
         <div className="empty-state qa-empty-state">
-          Enter a real app URL, then generate. StatQA will analyze the site first and export only evidence-backed runnable tests.
+          Fill all required context to generate a slow, complete, POM-based Playwright framework.
         </div>
       )}
     </section>
