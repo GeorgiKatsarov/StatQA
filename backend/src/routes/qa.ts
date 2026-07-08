@@ -17,7 +17,7 @@ import {
   runQaTest,
   toggleQaSchedule
 } from "../services/qa.js";
-import { buildFrameworkPackage } from "../services/qaFramework.js";
+import { buildFrameworkPackage, runFrameworkTests } from "../services/qaFramework.js";
 
 const qaRouter = Router();
 
@@ -55,14 +55,14 @@ const toggleScheduleSchema = z.object({
 });
 
 const frameworkBuilderSchema = z.object({
-  applicationName: z.string().trim().min(1).max(100).optional(),
-  applicationUrl: z.string().trim().url().optional(),
-  productDescription: z.string().trim().min(10).max(1200).optional(),
-  mainRoles: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
-  criticalFlows: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
-  businessRules: z.array(z.string().trim().min(1).max(240)).max(30).optional(),
-  riskAreas: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
-  supportedBrowsers: z.array(z.enum(["chromium", "firefox", "webkit"])).min(1).max(3).optional(),
+  applicationName: z.string().trim().min(3).max(100),
+  applicationUrl: z.string().trim().url(),
+  productDescription: z.string().trim().min(40).max(1600),
+  mainRoles: z.array(z.string().trim().min(2).max(80)).min(1).max(12),
+  criticalFlows: z.array(z.string().trim().min(5).max(160)).min(2).max(30),
+  businessRules: z.array(z.string().trim().min(5).max(260)).min(1).max(40),
+  riskAreas: z.array(z.string().trim().min(3).max(140)).min(2).max(30),
+  supportedBrowsers: z.array(z.enum(["chromium", "firefox", "webkit"])).min(1).max(3),
   includeCi: z.boolean().optional(),
   portfolioMode: z.boolean().optional()
 });
@@ -80,6 +80,16 @@ qaRouter.post("/framework/generate", authMiddleware, async (req, res, next) => {
     const body = frameworkBuilderSchema.parse(req.body);
     const framework = await buildFrameworkPackage(body);
     res.status(201).json({ framework });
+  } catch (error) {
+    next(error);
+  }
+});
+
+qaRouter.post("/framework/run", authMiddleware, async (req, res, next) => {
+  try {
+    const body = frameworkBuilderSchema.parse(req.body);
+    const result = await runFrameworkTests(body);
+    res.status(202).json(result);
   } catch (error) {
     next(error);
   }
