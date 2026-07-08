@@ -64,7 +64,8 @@ const frameworkBuilderSchema = z.object({
   riskAreas: z.array(z.string().trim().min(3).max(140)).min(2).max(30),
   supportedBrowsers: z.array(z.enum(["chromium", "firefox", "webkit"])).min(1).max(3),
   includeCi: z.boolean().optional(),
-  portfolioMode: z.boolean().optional()
+  portfolioMode: z.boolean().optional(),
+  confidentialTestAccounts: z.string().trim().max(4000).optional()
 });
 
 function projectNameFromQuery(req: AuthenticatedRequest) {
