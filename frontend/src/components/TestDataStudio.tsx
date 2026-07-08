@@ -58,10 +58,14 @@ function toCsv(records: DataRecord[]) {
   return [headers.map(csvEscape).join(","), ...rows].join("\n");
 }
 
+function escapeHtml(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+
 function toDocHtml(dataset: DataSet) {
   const headers = Array.from(new Set(dataset.records.flatMap((record) => Object.keys(record))));
-  const rows = dataset.records.map((record) => `<tr>${headers.map((header) => `<td>${record[header] ?? ""}</td>`).join("")}</tr>`).join("");
-  return `<html><head><meta charset="utf-8"><title>${dataset.name}</title></head><body><h1>${dataset.name}</h1><p>${dataset.description}</p><table border="1" cellspacing="0" cellpadding="6"><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const rows = dataset.records.map((record) => `<tr>${headers.map((header) => `<td>${escapeHtml(String(record[header] ?? ""))}</td>`).join("")}</tr>`).join("");
+  return `<html><head><meta charset="utf-8"><title>${escapeHtml(dataset.name)}</title><style>body{font-family:Arial,sans-serif}table{border-collapse:collapse;width:100%}th,td{border:1px solid #cfd8e3;padding:8px;vertical-align:top}th{background:#eef2ff;text-align:left}</style></head><body><h1>${escapeHtml(dataset.name)}</h1><p>${escapeHtml(dataset.description)}</p><table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></body></html>`;
 }
 
 function toMarkdown(dataset: DataSet) {
@@ -71,7 +75,7 @@ function toMarkdown(dataset: DataSet) {
 }
 
 function makePdfText(title: string, body: string) {
-  const safeLines = `${title}\n\n${body}`.replace(/[()\\]/g, " ").split("\n").slice(0, 45);
+  const safeLines = `${title}\n\n${body}`.replace(/[()\\]/g, " ").split("\n").filter(Boolean).slice(0, 45);
   const text = safeLines.map((line, index) => `BT /F1 10 Tf 40 ${760 - index * 16} Td (${line.slice(0, 95)}) Tj ET`).join("\n");
   return `%PDF-1.4
 1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
@@ -99,8 +103,12 @@ function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "test-data";
 }
 
+function parseFields(value: string) {
+  return value.split(",").map((field) => field.trim()).filter(Boolean);
+}
+
 function generateRecords(description: string, fieldsText: string, count: number): DataRecord[] {
-  const fields = fieldsText.split(",").map((field) => field.trim()).filter(Boolean);
+  const fields = parseFields(fieldsText);
   const lowerDescription = description.toLowerCase();
   return Array.from({ length: count }).map((_, index) => {
     const record: DataRecord = {};
@@ -129,12 +137,21 @@ export function TestDataStudio() {
   const [count, setCount] = useState(5);
 
   const selectedDataset = useMemo(() => datasets.find((dataset) => dataset.name === selectedName) ?? datasets[0], [datasets, selectedName]);
+  const validationErrors = useMemo(() => {
+    const errors: string[] = [];
+    if (description.trim().length < 10) errors.push("Describe the scenario so the data has a purpose.");
+    if (parseFields(fields).length === 0) errors.push("Add at least one comma-separated field name.");
+    if (parseFields(fields).some((field) => field.length < 2)) errors.push("Each field name must be at least two characters.");
+    if (!Number.isInteger(count) || count < 1 || count > 50) errors.push("Rows must be between 1 and 50.");
+    return errors;
+  }, [count, description, fields]);
 
   function generateDataset() {
+    if (validationErrors.length) return;
     const name = `Custom ${new Date().toLocaleTimeString()}`;
     const dataset: DataSet = {
       name,
-      description,
+      description: description.trim(),
       records: generateRecords(description, fields, count)
     };
     setDatasets((current) => [dataset, ...current]);
@@ -157,13 +174,13 @@ export function TestDataStudio() {
       <div className="panel-header page-intro">
         <p className="eyebrow">Test data studio</p>
         <h2>Reusable datasets and export files</h2>
-        <p>Start from hardcoded safe datasets, describe new data needs, generate structured records, and export JSON, CSV, Excel-friendly CSV, DOC, Markdown, or PDF files.</p>
+        <p>Use this page to prepare the data that manual testers and automation will need: valid users, invalid boundary values, address data, and custom fields. Export raw data for tooling or formatted DOC/PDF files for review.</p>
       </div>
 
       <section className="subpanel">
         <div className="subpanel-heading">
           <h3>Built-in datasets</h3>
-          <p>Use these as quick seed data for demos, manual test cases, and early automation.</p>
+          <p>Safe seed data for demos, manual cases, and early automation. Select a dataset to preview or export it.</p>
         </div>
         <div className="manual-test-grid">
           {datasets.map((dataset) => (
@@ -178,14 +195,15 @@ export function TestDataStudio() {
       <section className="subpanel">
         <div className="subpanel-heading">
           <h3>Describe needed data</h3>
-          <p>This local generator is deterministic and safe for demos. Backend AI data generation can be wired back later if needed.</p>
+          <p>Write the scenario and fields. StatQA will create deterministic safe records, not real customer or production data.</p>
         </div>
         <div className="qa-form-grid">
           <label className="qa-field-full">Scenario<textarea value={description} onChange={(event) => setDescription(event.target.value)} /></label>
           <label className="qa-field-wide">Fields<input value={fields} onChange={(event) => setFields(event.target.value)} placeholder="email, fullName, password" /></label>
           <label className="qa-field-short">Rows<input type="number" min="1" max="50" value={count} onChange={(event) => setCount(Number(event.target.value))} /></label>
         </div>
-        <div className="actions-row"><button className="primary-button" type="button" onClick={generateDataset}>Generate dataset</button></div>
+        {validationErrors.length ? <div className="validation-list">{validationErrors.map((error) => <p key={error}>{error}</p>)}</div> : null}
+        <div className="actions-row"><button className="primary-button" type="button" disabled={validationErrors.length > 0} onClick={generateDataset}>Generate dataset</button></div>
       </section>
 
       {selectedDataset ? (
@@ -195,8 +213,8 @@ export function TestDataStudio() {
             <button className="secondary-button" type="button" onClick={() => exportDataset("json")}>Export JSON</button>
             <button className="secondary-button" type="button" onClick={() => exportDataset("csv")}>Export CSV</button>
             <button className="secondary-button" type="button" onClick={() => exportDataset("xlsx")}>Export Excel CSV</button>
-            <button className="secondary-button" type="button" onClick={() => exportDataset("md")}>Export Markdown</button>
-            <button className="secondary-button" type="button" onClick={() => exportDataset("doc")}>Export DOC</button>
+            <button className="secondary-button" type="button" onClick={() => exportDataset("md")}>Export Markdown source</button>
+            <button className="secondary-button" type="button" onClick={() => exportDataset("doc")}>Export formatted DOC</button>
             <button className="secondary-button" type="button" onClick={() => exportDataset("pdf")}>Export PDF</button>
           </div>
           <div className="qa-table-wrap">
