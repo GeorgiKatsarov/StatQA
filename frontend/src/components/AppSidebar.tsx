@@ -5,34 +5,49 @@ interface AppSidebarProps {
 
 const sections = [
   {
-    title: "Build",
+    title: "Analyze",
+    summary: "Use static analysis as a risk map, not as fake QA completion.",
+    pages: [
+      { id: "static-analysis", label: "Static analysis", hint: "Useful site health" }
+    ]
+  },
+  {
+    title: "Design",
+    summary: "Create manual tests and reusable data before automation.",
+    pages: [
+      { id: "manual-tests", label: "Manual test studio", hint: "Zephyr-style grid" },
+      { id: "test-data-studio", label: "Test data studio", hint: "JSON, CSV, DOC, PDF" }
+    ]
+  },
+  {
+    title: "Automate",
     summary: "Generate, run, review, and download one full Playwright TypeScript framework.",
     pages: [
-      { id: "qa-framework", label: "Framework builder", hint: "Single workflow" }
+      { id: "qa-framework", label: "Framework builder", hint: "POM framework" }
     ]
   }
 ];
 
 const workflowSteps = [
   {
-    title: "1. Describe the product",
-    detail: "Use this before generation. Add the real URL, business context, roles, flows, rules, risks, and optional safe test accounts."
+    title: "1. Static scan",
+    detail: "Use this first when you need a risk map of pages, forms, links, accessibility, and obvious technical issues."
   },
   {
-    title: "2. Generate the framework",
-    detail: "Use this when the context checklist is green. StatQA should be slow here because it analyzes the live site and builds the POM framework."
+    title: "2. Manual tests",
+    detail: "Create reviewed manual cases in the grid. Export them for Zephyr/TestRail-style review or portfolio evidence."
   },
   {
-    title: "3. Run generated checks",
-    detail: "Use this before downloading. It proves whether the generated browser checks can open the real observed pages from the app."
+    title: "3. Test data",
+    detail: "Prepare valid, invalid, boundary, and role-based data. Export files for docs, Excel, PDF, or JSON usage."
   },
   {
-    title: "4. Review failing checks",
-    detail: "Use this when the run is red. Fix product context, unreachable URLs, unstable public content, or unsafe assumptions, then regenerate."
+    title: "4. Framework",
+    detail: "Generate the full POM-based Playwright framework only after you know the flows, risks, and data you want."
   },
   {
-    title: "5. Download and continue locally",
-    detail: "Use this only after review. Add real secrets to .env locally, run npm test, then extend authenticated flows with cleanup-safe POMs."
+    title: "5. Run and download",
+    detail: "Run generated checks from the app, review pass/fail output, then download and continue locally with .env secrets."
   }
 ];
 
@@ -41,9 +56,9 @@ export function AppSidebar({ activePage, onSelect }: AppSidebarProps) {
     <aside className="app-sidebar panel">
       <div className="sidebar-header">
         <p className="eyebrow">StatQA workflow</p>
-        <h2>Framework cockpit</h2>
+        <h2>QA cockpit</h2>
         <p>
-          One focused flow: describe the product, analyze the site, generate a strict POM-based Playwright framework, run the checks, and download the ZIP.
+          A practical QA workflow: analyze risk, design manual coverage, prepare test data, then generate and run a full Playwright framework.
         </p>
       </div>
       <nav className="stack" aria-label="Main navigation">
@@ -71,8 +86,8 @@ export function AppSidebar({ activePage, onSelect }: AppSidebarProps) {
       </nav>
       <div className="nav-section workflow-guide-card">
         <div className="nav-section-heading">
-          <p className="nav-section-title">How to use this page</p>
-          <span>Follow the workflow in order. Do not download first.</span>
+          <p className="nav-section-title">How to use the site</p>
+          <span>Follow the workflow in order when building a serious QA package.</span>
         </div>
         <div className="qa-list compact-framework-list">
           {workflowSteps.map((step) => (
