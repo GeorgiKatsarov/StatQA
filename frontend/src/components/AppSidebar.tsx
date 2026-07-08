@@ -5,34 +5,10 @@ interface AppSidebarProps {
 
 const sections = [
   {
-    title: "Generate",
-    summary: "Turn app context into a downloadable Playwright TypeScript framework.",
+    title: "Build",
+    summary: "Generate, run, review, and download one full Playwright TypeScript framework.",
     pages: [
-      { id: "qa-framework", label: "Framework builder", hint: "Hero feature" },
-      { id: "qa-generate", label: "Manual test cases", hint: "Risk-based source" },
-      { id: "qa-run", label: "Run generated tests", hint: "Execution" },
-      { id: "qa-reports", label: "QA evidence", hint: "Results" }
-    ]
-  },
-  {
-    title: "Assess",
-    summary: "Scan a live site for quality, behavior, and security signals.",
-    pages: [
-      { id: "scan", label: "Run scan", hint: "URL evidence" },
-      { id: "static", label: "Risk signals", hint: "Content/runtime" },
-      { id: "behavior", label: "Behavior checks", hint: "Safe interactions" },
-      { id: "security", label: "Security risks", hint: "Headers/forms" },
-      { id: "reports", label: "Scan reports", hint: "Findings" },
-      { id: "history", label: "History", hint: "Saved scans" }
-    ]
-  },
-  {
-    title: "Prepare",
-    summary: "Manage reusable inputs and defaults for repeatable QA work.",
-    pages: [
-      { id: "qa-data", label: "Test data", hint: "Datasets" },
-      { id: "qa-archive", label: "Archive", hint: "Older tests" },
-      { id: "settings", label: "Settings", hint: "Defaults" }
+      { id: "qa-framework", label: "Framework builder", hint: "Single workflow" }
     ]
   }
 ];
@@ -44,7 +20,7 @@ export function AppSidebar({ activePage, onSelect }: AppSidebarProps) {
         <p className="eyebrow">StatQA workflow</p>
         <h2>Framework cockpit</h2>
         <p>
-          Create a reviewable QA package: manual cases, automation decisions, Playwright specs, CI, reports, and a downloadable ZIP.
+          One focused flow: describe the product, analyze the site, generate a strict POM-based Playwright framework, run the checks, and download the ZIP.
         </p>
       </div>
       <nav className="stack" aria-label="Main navigation">
