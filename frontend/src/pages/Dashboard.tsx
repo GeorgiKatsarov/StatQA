@@ -18,8 +18,8 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-export function Dashboard({ user, error, onLogout }: DashboardProps) {
-  const [activePage, setActivePage] = useState("qa-framework");
+export function Dashboard({ analysis, activeAnalysisId, history, user, loading, activeJob, error, onAnalyze, onSelectHistory, onLogout }: DashboardProps) {
+  const [activePage, setActivePage] = useState("static-analysis");
 
   return (
     <div className="dashboard-shell">
@@ -34,7 +34,18 @@ export function Dashboard({ user, error, onLogout }: DashboardProps) {
         <AppSidebar activePage={activePage} onSelect={setActivePage} />
         <div className="dashboard-content">
           {error ? <p className="error-banner">{error}</p> : null}
-          <QaWorkspace activePage={activePage} defaultUrl={user.websiteUrl || ""} onNavigate={setActivePage} />
+          <QaWorkspace
+            activePage={activePage}
+            defaultUrl={user.websiteUrl || ""}
+            analysis={analysis}
+            activeAnalysisId={activeAnalysisId}
+            history={history}
+            analysisLoading={loading}
+            activeJob={activeJob}
+            onAnalyze={onAnalyze}
+            onSelectHistory={onSelectHistory}
+            onNavigate={setActivePage}
+          />
         </div>
       </main>
     </div>
