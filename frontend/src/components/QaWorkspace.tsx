@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../lib/api";
 import { FrameworkBuilder } from "./FrameworkBuilder";
+import { ManualTestStudio } from "./ManualTestStudio";
+import { StaticAnalysisPage } from "./StaticAnalysisPage";
+import { TestDataStudio } from "./TestDataStudio";
+import type { AnalysisSummary } from "../lib/api";
 import type {
+  AnalysisJob,
+  AnalysisResult,
+  AnalyzeRequest,
   QaAiStatus,
   QaDataset,
   QaGeneratedTest,
@@ -15,6 +22,13 @@ import type {
 interface QaWorkspaceProps {
   activePage: string;
   defaultUrl: string;
+  analysis: AnalysisResult | null;
+  activeAnalysisId?: string;
+  history: AnalysisSummary[];
+  analysisLoading: boolean;
+  activeJob: AnalysisJob | null;
+  onAnalyze: (payload: AnalyzeRequest) => Promise<void>;
+  onSelectHistory: (analysisId: string) => Promise<void>;
   onNavigate: (page: string) => void;
 }
 
@@ -350,7 +364,7 @@ function TestCard({
   );
 }
 
-export function QaWorkspace({ activePage, defaultUrl, onNavigate }: QaWorkspaceProps) {
+export function QaWorkspace({ activePage, defaultUrl, analysis, activeAnalysisId, history, analysisLoading, activeJob, onAnalyze, onSelectHistory, onNavigate }: QaWorkspaceProps) {
   const [tests, setTests] = useState<QaGeneratedTest[]>([]);
   const [archivedTests, setArchivedTests] = useState<QaGeneratedTest[]>([]);
   const [runs, setRuns] = useState<QaTestRun[]>([]);
@@ -552,6 +566,29 @@ export function QaWorkspace({ activePage, defaultUrl, onNavigate }: QaWorkspaceP
   useEffect(() => {
     setTestListLimit(TEST_LIST_PAGE_SIZE);
   }, [testSearch, activePage]);
+
+  if (activePage === "static-analysis") {
+    return (
+      <StaticAnalysisPage
+        analysis={analysis}
+        activeAnalysisId={activeAnalysisId}
+        history={history}
+        loading={analysisLoading}
+        activeJob={activeJob}
+        defaultUrl={defaultUrl}
+        onAnalyze={onAnalyze}
+        onSelectHistory={onSelectHistory}
+      />
+    );
+  }
+
+  if (activePage === "manual-tests") {
+    return <ManualTestStudio />;
+  }
+
+  if (activePage === "test-data-studio") {
+    return <TestDataStudio />;
+  }
 
   if (activePage === "qa-framework") {
     return <FrameworkBuilder defaultUrl={defaultUrl} onNavigate={onNavigate} />;
@@ -867,62 +904,6 @@ export function QaWorkspace({ activePage, defaultUrl, onNavigate }: QaWorkspaceP
             </section>
           </div>
         </div>
-      </section>
-    );
-  }
-
-  if (activePage === "qa-archive") {
-    return (
-      <section className="panel qa-panel">
-        <div className="panel-header">
-          <p className="eyebrow">Archive</p>
-          <h2>Archived tests</h2>
-          <p>Keep older generated tests available without cluttering active runs.</p>
-        </div>
-        {message ? <p className="info-banner">{message}</p> : null}
-        <div className="qa-filter-row">
-          <WorkspaceField projectName={projectName} projects={projects} onProjectNameChange={setProjectName} />
-          <label>
-            Search archive
-            <input value={testSearch} onChange={(event) => setTestSearch(event.target.value)} placeholder="Title, risk, type, or URL" />
-          </label>
-        </div>
-        <BulkTestActions
-          selectedCount={selectedTestIds.length}
-          visibleTests={visibleArchivedTests}
-          mode="archived"
-          loading={loading}
-          onSelectVisible={selectVisibleTests}
-          onClear={clearSelectedTests}
-          onArchive={() => bulkArchiveTests(true)}
-          onRestore={() => bulkArchiveTests(false)}
-          onDelete={bulkDeleteTests}
-        />
-        <div className="qa-list">
-          {filteredArchivedTests.length ? visibleArchivedTests.map((test) => (
-            <TestCard
-              key={test.id}
-              test={test}
-              runStatus={runFeedback[test.id]}
-              isRunning={runningTestId === test.id}
-              expanded={expandedTestIdSet.has(test.id)}
-              selected={selectedTestIds.includes(test.id)}
-              actionsMode="manage"
-              onSelect={selectTest}
-              onToggleExpanded={toggleTestExpanded}
-              onArchive={archiveTest}
-              onSchedule={scheduleTest}
-              onRun={runTest}
-            />
-          )) : <div className="empty-state qa-empty-state">No archived tests match this view.</div>}
-        </div>
-        <ListLimitControls
-          total={filteredArchivedTests.length}
-          visible={testListLimit}
-          onShowMore={() => setTestListLimit((current) => current + TEST_LIST_PAGE_SIZE)}
-          onShowAll={() => setTestListLimit(filteredArchivedTests.length)}
-          onReset={() => setTestListLimit(TEST_LIST_PAGE_SIZE)}
-        />
       </section>
     );
   }
